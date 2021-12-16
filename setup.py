@@ -11,7 +11,7 @@ def parse_requirements(file):
 
 setup(
     name='eo-flow',
-    python_requires='>=3.5',
+    python_requires='>=3.7',
     version='1.2.0',
     description='Tensorflow wrapper built for prototyping and deploying earth observation deep models.',
     author='Sinergise EO research team',

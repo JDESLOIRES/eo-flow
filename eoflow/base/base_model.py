@@ -23,7 +23,7 @@ class BaseModel(tf.keras.Model, Configurable):
         pass
 
     def call(self, inputs, training=False):
-        """ Runs the model with inputs. """
+
         pass
 
     def prepare(self, optimizer=None, loss=None, metrics=None, **kwargs):
