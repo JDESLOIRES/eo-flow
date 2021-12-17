@@ -105,6 +105,55 @@ class TCNModel(BaseRegressionModel):
         return self.net(inputs, training)
 
 
+class MLP(BaseRegressionModel):
+    """ Implementation of the TempCNN network taken from the temporalCNN implementation
+
+        https://github.com/charlotte-pel/temporalCNN
+    """
+
+    class MLPSchema(BaseRegressionModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+
+    def build(self, inputs_shape):
+        """ Build TCN architecture
+
+        The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
+        time-frames, and `D` the number of channels
+        """
+        x = tf.keras.layers.Input(inputs_shape[1:])
+        net = x
+
+        dropout_rate = 1 - self.config.keep_prob
+
+        for _ in range(self.config.nb_fc_stacks):
+            net = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
+                                        kernel_initializer=self.config.kernel_initializer,
+                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+            if self.config.batch_norm:
+                net = tf.keras.layers.BatchNormalization(axis=-1)(net)
+
+            net = tf.keras.layers.Dropout(dropout_rate)(net)
+            net = tf.keras.layers.Activation(self.config.activation)(net)
+
+        net = tf.keras.layers.Dense(units = 1,
+                                    activation = 'linear',
+                                    kernel_initializer=self.config.kernel_initializer,
+                                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+
+        self.net = tf.keras.Model(inputs=x, outputs=net)
+
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
 class TempCNNModel(BaseRegressionModel):
     """ Implementation of the TempCNN network taken from the temporalCNN implementation
 
@@ -119,6 +168,8 @@ class TempCNNModel(BaseRegressionModel):
         nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'MaxPool1D']),
+                                    description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
@@ -148,11 +199,15 @@ class TempCNNModel(BaseRegressionModel):
             if self.config.batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
+            net = tf.keras.layers.Dropout(dropout_rate)(net)
             net = tf.keras.layers.Activation(self.config.activation)(net)
 
-            net = tf.keras.layers.Dropout(dropout_rate)(net)
-
-        net = tf.keras.layers.Flatten()(net)
+        if self.config.final_layer == 'Flatten':
+            net = tf.keras.layers.Flatten()(net)
+        elif self.config.final_layer == 'GlobalAveragePooling1D':
+            net = tf.keras.layers.GlobalAveragePooling1D()(net)
+        elif self.config.final_layer == 'MaxPool1D':
+            net = tf.keras.layers.MaxPool1D()(net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
@@ -161,9 +216,8 @@ class TempCNNModel(BaseRegressionModel):
             if self.config.batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
-            net = tf.keras.layers.Activation(self.config.activation)(net)
-
             net = tf.keras.layers.Dropout(dropout_rate)(net)
+            net = tf.keras.layers.Activation(self.config.activation)(net)
 
         net = tf.keras.layers.Dense(units = 1,
                                     activation = 'linear',
@@ -248,10 +302,12 @@ class BiRNN(BaseRegressionModel):
                 batch_norm = tf.keras.layers.BatchNormalization(axis=-1)
                 layers.append(batch_norm)
 
-            activation = tf.keras.layers.Activation(self.config.activation)
-            layers.append(activation)
             dropout = tf.keras.layers.Dropout(dropout_rate)
             layers.append(dropout)
+
+            activation = tf.keras.layers.Activation(self.config.activation)
+            layers.append(activation)
+
 
         dense = tf.keras.layers.Dense(units=1,
                                       activation='linear',
