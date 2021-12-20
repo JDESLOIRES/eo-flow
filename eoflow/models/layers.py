@@ -15,6 +15,7 @@ class ResidualBlock(tf.keras.layers.Layer):
                  activation='relu',
                  dropout_rate=0,
                  kernel_initializer='he_normal',
+                 kernel_regularizer = 0,
                  use_batch_norm=False,
                  use_layer_norm=False,
                  last_block=True,
@@ -44,6 +45,7 @@ class ResidualBlock(tf.keras.layers.Layer):
         self.use_batch_norm = use_batch_norm
         self.use_layer_norm = use_layer_norm
         self.kernel_initializer = kernel_initializer
+        self.kernel_regularizer = kernel_regularizer
         self.last_block = last_block
         self.residual_layers = list()
         self.shape_match_conv = None
@@ -75,6 +77,7 @@ class ResidualBlock(tf.keras.layers.Layer):
                                                         dilation_rate=self.dilation_rate,
                                                         padding=self.padding,
                                                         name=name,
+                                                        kernel_regularizer = tf.keras.regularizers.l2(self.kernel_regularizer),
                                                         kernel_initializer=self.kernel_initializer))
 
                 if self.use_batch_norm:
@@ -82,8 +85,9 @@ class ResidualBlock(tf.keras.layers.Layer):
                 elif self.use_layer_norm:
                     self._add_and_activate_layer(LayerNormalization())
 
-                self._add_and_activate_layer(Activation('relu'))
                 self._add_and_activate_layer(SpatialDropout1D(rate=self.dropout_rate))
+                self._add_and_activate_layer(Activation('relu'))
+
 
             if not self.last_block:
                 # 1x1 conv to match the shapes (channel dimension).
@@ -94,6 +98,7 @@ class ResidualBlock(tf.keras.layers.Layer):
                                                    kernel_size=1,
                                                    padding='same',
                                                    name=name,
+                                                   kernel_regularizer = tf.keras.regularizers.l2(self.kernel_regularizer),
                                                    kernel_initializer=self.kernel_initializer)
 
             else:

@@ -38,6 +38,7 @@ class TCNModel(BaseRegressionModel):
         return_sequences = fields.Bool(missing=False, description='Flag to whether return sequences or not.')
         activation = fields.Str(missing='linear', description='Activation function used in final filters.')
         kernel_initializer = fields.Str(missing='he_normal', description='method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=0, description='L2 regularization parameter.')
 
         use_batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
         use_layer_norm = fields.Bool(missing=False, description='Whether to use layer normalisation.')
@@ -57,6 +58,7 @@ class TCNModel(BaseRegressionModel):
         net = tf.keras.layers.Conv1D(filters=self.config.nb_filters,
                                      kernel_size=self.config.kernel_size,
                                      padding=self.config.padding,
+                                     kernel_regularizer = tf.keras.regularizers.l2(self.config.kernel_regularizer),
                                      kernel_initializer=self.config.kernel_initializer)(net)
 
         # list to hold all the member ResidualBlocks
@@ -78,6 +80,7 @@ class TCNModel(BaseRegressionModel):
                                               use_batch_norm=self.config.use_batch_norm,
                                               use_layer_norm=self.config.use_layer_norm,
                                               kernel_initializer=self.config.kernel_initializer,
+                                              kernel_regularizer=self.config.kernel_regularizer,
                                               last_block=len(residual_blocks) + 1 == total_num_blocks,
                                               name=f'residual_block_{len(residual_blocks)}')(net)
                 residual_blocks.append(net)
@@ -123,7 +126,7 @@ class MLP(BaseRegressionModel):
     def build(self, inputs_shape):
         """ Build TCN architecture
 
-        The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
+        The `inputs_shape` argument is a `(N, T*D)` tuple where `N` denotes the number of samples, `T` the number of
         time-frames, and `D` the number of channels
         """
         x = tf.keras.layers.Input(inputs_shape[1:])
@@ -170,7 +173,7 @@ class TempCNNModel(BaseRegressionModel):
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
         final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'MaxPool1D']),
                                     description='Final layer after the convolutions.')
-        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID']),
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
