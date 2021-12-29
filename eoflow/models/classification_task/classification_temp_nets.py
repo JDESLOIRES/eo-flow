@@ -7,7 +7,7 @@ from tensorflow.keras.layers import SimpleRNN, LSTM, GRU
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.regression_base import BaseRegressionModel
+from .classification_base import BaseClassificationModel
 
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
@@ -18,13 +18,13 @@ logging.basicConfig(level=logging.INFO,
 rnn_layers = dict(rnn=SimpleRNN, gru=GRU, lstm=LSTM)
 
 
-class TCNModel(BaseRegressionModel):
+class TCNModel(BaseClassificationModel):
     """ Implementation of the TCN network taken form the keras-TCN implementation
 
         https://github.com/philipperemy/keras-tcn
     """
 
-    class TCNModelSchema(BaseRegressionModel._Schema):
+    class TCNModelSchema(BaseClassificationModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
 
         kernel_size = fields.Int(missing=2, description='Size of the convolution kernels.')
@@ -38,7 +38,6 @@ class TCNModel(BaseRegressionModel):
         return_sequences = fields.Bool(missing=False, description='Flag to whether return sequences or not.')
         activation = fields.Str(missing='linear', description='Activation function used in final filters.')
         kernel_initializer = fields.Str(missing='he_normal', description='method to initialise kernel parameters.')
-        kernel_regularizer = fields.Float(missing=0, description='L2 regularization parameter.')
 
         use_batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
         use_layer_norm = fields.Bool(missing=False, description='Whether to use layer normalisation.')
@@ -56,9 +55,8 @@ class TCNModel(BaseRegressionModel):
         net = x
 
         net = tf.keras.layers.Conv1D(filters=self.config.nb_filters,
-                                     kernel_size=self.config.kernel_size,
+                                     kernel_size=1,
                                      padding=self.config.padding,
-                                     kernel_regularizer = tf.keras.regularizers.l2(self.config.kernel_regularizer),
                                      kernel_initializer=self.config.kernel_initializer)(net)
 
         # list to hold all the member ResidualBlocks
@@ -80,7 +78,6 @@ class TCNModel(BaseRegressionModel):
                                               use_batch_norm=self.config.use_batch_norm,
                                               use_layer_norm=self.config.use_layer_norm,
                                               kernel_initializer=self.config.kernel_initializer,
-                                              kernel_regularizer=self.config.kernel_regularizer,
                                               last_block=len(residual_blocks) + 1 == total_num_blocks,
                                               name=f'residual_block_{len(residual_blocks)}')(net)
                 residual_blocks.append(net)
@@ -97,57 +94,9 @@ class TCNModel(BaseRegressionModel):
         if not self.config.return_sequences:
             net = lambda_layer(net)
 
-        net = tf.keras.layers.Dense(1, activation='linear')(net)
+        net = tf.keras.layers.Dense(self.config.n_classes)(net)
 
-
-        self.net = tf.keras.Model(inputs=x, outputs=net)
-
-        print_summary(self.net)
-
-    def call(self, inputs, training=None):
-        return self.net(inputs, training)
-
-
-class MLP(BaseRegressionModel):
-    """ Implementation of the TempCNN network taken from the temporalCNN implementation
-
-        https://github.com/charlotte-pel/temporalCNN
-    """
-
-    class MLPSchema(BaseRegressionModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
-        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
-        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
-        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
-        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
-        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
-
-    def build(self, inputs_shape):
-        """ Build TCN architecture
-
-        The `inputs_shape` argument is a `(N, T*D)` tuple where `N` denotes the number of samples, `T` the number of
-        time-frames, and `D` the number of channels
-        """
-        x = tf.keras.layers.Input(inputs_shape[1:])
-        net = x
-
-        dropout_rate = 1 - self.config.keep_prob
-
-        for _ in range(self.config.nb_fc_stacks):
-            net = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
-                                        kernel_initializer=self.config.kernel_initializer,
-                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.batch_norm:
-                net = tf.keras.layers.BatchNormalization(axis=-1)(net)
-
-            net = tf.keras.layers.Dropout(dropout_rate)(net)
-            net = tf.keras.layers.Activation(self.config.activation)(net)
-
-        net = tf.keras.layers.Dense(units = 1,
-                                    activation = 'linear',
-                                    kernel_initializer=self.config.kernel_initializer,
-                                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        net = tf.keras.layers.Softmax()(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
@@ -157,29 +106,28 @@ class MLP(BaseRegressionModel):
         return self.net(inputs, training)
 
 
-class TempCNNModel(BaseRegressionModel):
+class TempCNNModel(BaseClassificationModel):
     """ Implementation of the TempCNN network taken from the temporalCNN implementation
 
         https://github.com/charlotte-pel/temporalCNN
     """
 
-    class TempCNNModelSchema(BaseRegressionModel._Schema):
+    class TempCNNModelSchema(BaseClassificationModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
         nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'MaxPool1D']),
-                                    description='Final layer after the convolutions.')
-        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
 
-        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        use_batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
     def build(self, inputs_shape):
         """ Build TCN architecture
@@ -188,10 +136,10 @@ class TempCNNModel(BaseRegressionModel):
         time-frames, and `D` the number of channels
         """
         x = tf.keras.layers.Input(inputs_shape[1:])
-        net = x
 
         dropout_rate = 1 - self.config.keep_prob
 
+        net = x
         for _ in range(self.config.nb_conv_stacks):
             net = tf.keras.layers.Conv1D(filters=self.config.nb_conv_filters,
                                          kernel_size=self.config.kernel_size,
@@ -199,33 +147,31 @@ class TempCNNModel(BaseRegressionModel):
                                          padding=self.config.padding,
                                          kernel_initializer=self.config.kernel_initializer,
                                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.batch_norm:
+            if self.config.use_batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
-            net = tf.keras.layers.Dropout(dropout_rate)(net)
             net = tf.keras.layers.Activation(self.config.activation)(net)
 
-        if self.config.final_layer == 'Flatten':
-            net = tf.keras.layers.Flatten()(net)
-        elif self.config.final_layer == 'GlobalAveragePooling1D':
-            net = tf.keras.layers.GlobalAveragePooling1D()(net)
-        elif self.config.final_layer == 'MaxPool1D':
-            net = tf.keras.layers.MaxPool1D()(net)
+            net = tf.keras.layers.Dropout(dropout_rate)(net)
+
+        net = tf.keras.layers.Flatten()(net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
                                         kernel_initializer=self.config.kernel_initializer,
                                         kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.batch_norm:
+            if self.config.use_batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
-            net = tf.keras.layers.Dropout(dropout_rate)(net)
             net = tf.keras.layers.Activation(self.config.activation)(net)
 
-        net = tf.keras.layers.Dense(units = 1,
-                                    activation = 'linear',
+            net = tf.keras.layers.Dropout(dropout_rate)(net)
+
+        net = tf.keras.layers.Dense(units=self.config.n_classes,
                                     kernel_initializer=self.config.kernel_initializer,
                                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+
+        net = tf.keras.layers.Softmax()(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
@@ -235,13 +181,13 @@ class TempCNNModel(BaseRegressionModel):
         return self.net(inputs, training)
 
 
-class BiRNN(BaseRegressionModel):
+class BiRNN(BaseClassificationModel):
     """ Implementation of a Bidirectional Recurrent Neural Network
 
     This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
     """
 
-    class BiRNNModelSchema(BaseRegressionModel._Schema):
+    class BiRNNModelSchema(BaseClassificationModel._Schema):
         rnn_layer = fields.String(required=True, validate=OneOf(['rnn', 'lstm', 'gru']),
                                   description='Type of RNN layer to use')
 
@@ -251,11 +197,9 @@ class BiRNN(BaseRegressionModel):
         rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
         bidirectional = fields.Bool(missing=True, description='Whether to use a bidirectional layer')
 
-        activation = fields.Str(missing='relu', description='Activation function for fully connected layers')
+        activation = fields.Str(missing='linear', description='Activation function used in final dense filters.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
-        nb_fc_stacks = fields.Int(missing=0, description='Number of fully connected layers.')
-        nb_fc_neurons = fields.Int(missing=0, description='Number of fully connected neurons.')
 
         layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
@@ -277,7 +221,6 @@ class BiRNN(BaseRegressionModel):
 
     def init_model(self):
         """ Creates the RNN model architecture. """
-
         layers = []
         if self.config.layer_norm:
             layer_norm = tf.keras.layers.LayerNormalization()
@@ -295,29 +238,15 @@ class BiRNN(BaseRegressionModel):
             layer_norm = tf.keras.layers.LayerNormalization()
             layers.append(layer_norm)
 
-        dropout_rate = 1 - self.config.keep_prob
-        for _ in range(self.config.nb_fc_stacks):
-            layer_fcn = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
-                                              kernel_initializer=self.config.kernel_initializer,
-                                              kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
-            layers.append(layer_fcn)
-            if self.config.batch_norm:
-                batch_norm = tf.keras.layers.BatchNormalization(axis=-1)
-                layers.append(batch_norm)
-
-            dropout = tf.keras.layers.Dropout(dropout_rate)
-            layers.append(dropout)
-
-            activation = tf.keras.layers.Activation(self.config.activation)
-            layers.append(activation)
-
-
-        dense = tf.keras.layers.Dense(units=1,
-                                      activation='linear',
+        dense = tf.keras.layers.Dense(units=self.config.n_classes,
+                                      activation=self.config.activation,
                                       kernel_initializer=self.config.kernel_initializer,
                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
 
+        softmax = tf.keras.layers.Softmax()
+
         layers.append(dense)
+        layers.append(softmax)
 
         self.net = tf.keras.Sequential(layers)
 
@@ -330,13 +259,13 @@ class BiRNN(BaseRegressionModel):
         return self.net(inputs, training)
 
 
-class TransformerEncoder(BaseRegressionModel):
+class TransformerEncoder(BaseClassificationModel):
     """ Implementation of a self-attention classifier
 
     Code is based on the Pytorch implementation of Marc Russwurm https://github.com/MarcCoru/crop-type-mapping
     """
 
-    class TransformerEncoderSchema(BaseRegressionModel._Schema):
+    class TransformerEncoderSchema(BaseClassificationModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
 
         num_heads = fields.Int(missing=8, description='Number of Attention heads.')
@@ -358,8 +287,8 @@ class TransformerEncoder(BaseRegressionModel):
             maximum_position_encoding=self.config.max_pos_enc,
             layer_norm=self.config.layer_norm)
 
-        self.dense = tf.keras.layers.Dense(units=1,
-                                           activation='linear')
+        self.dense = tf.keras.layers.Dense(units=self.config.n_classes,
+                                           activation=self.config.activation)
 
     def build(self, inputs_shape):
         """ Build Transformer encoder architecture
@@ -385,13 +314,13 @@ class TransformerEncoder(BaseRegressionModel):
         return self.net(inputs, training, mask)
 
 
-class PseTae(BaseRegressionModel):
+class PseTae(BaseClassificationModel):
     """ Implementation of the Pixel-Set encoder + Temporal Attention Encoder sequence classifier
 
     Code is based on the Pytorch implementation of V. Sainte Fare Garnot et al. https://github.com/VSainteuf/pytorch-psetae
     """
 
-    class PseTaeSchema(BaseRegressionModel._Schema):
+    class PseTaeSchema(BaseClassificationModel._Schema):
         mlp1 = fields.List(fields.Int, missing=[10, 32, 64], description='Number of units for each layer in mlp1.')
         pooling = fields.Str(missing='mean_std', description='Methods used for pooling. Seperated by underscore. (mean, std, max, min)')
         mlp2 = fields.List(fields.Int, missing=[132, 128], description='Number of units for each layer in mlp2.')
@@ -403,7 +332,7 @@ class PseTae(BaseRegressionModel):
         dropout = fields.Float(missing=0.2, description='Dropout rate for attention encoder.')
         T = fields.Float(missing=1000, description='Number of features for attention.')
         len_max_seq = fields.Int(missing=24, description='Number of features for attention.')
-        mlp4 = fields.List(fields.Int, missing=[128, 64, 32], description='Number of units for each layer in mlp4. ')
+        mlp4 = fields.List(fields.Int, missing=[128, 64, 32], description='Number of units for each layer in mlp4. Last layer with n_classes is added automatically.')
 
     def init_model(self):
         # TODO: missing features from original PseTae:
@@ -426,7 +355,7 @@ class PseTae(BaseRegressionModel):
 
         mlp4_layers = [pse_tae_layers.LinearLayer(out_dim) for out_dim in self.config.mlp4]
         # Final layer (logits)
-        mlp4_layers.append(pse_tae_layers.LinearLayer(1, batch_norm=False, activation='linear'))
+        mlp4_layers.append(pse_tae_layers.LinearLayer(self.config.n_classes, batch_norm=False, activation=False))
 
         self.mlp4 = tf.keras.Sequential(mlp4_layers)
 

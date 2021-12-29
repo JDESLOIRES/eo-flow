@@ -145,17 +145,18 @@ class Conv2D(tf.keras.layers.Layer):
 
         repetitions = []
 
-        for i in range(num_repetitions):
-            layer = []
-            layer.append(tf.keras.layers.Conv2D(
-                filters=filters,
-                kernel_size=kernel_size,
-                strides=strides,
-                dilation_rate=dilation,
-                padding=padding,
-                use_bias=use_bias,
-                activation=activation
-            ))
+        for _ in range(num_repetitions):
+            layer = [
+                tf.keras.layers.Conv2D(
+                    filters=filters,
+                    kernel_size=kernel_size,
+                    strides=strides,
+                    dilation_rate=dilation,
+                    padding=padding,
+                    use_bias=use_bias,
+                    activation=activation,
+                )
+            ]
 
             if batch_normalization:
                 layer.append(tf.keras.layers.BatchNormalization())

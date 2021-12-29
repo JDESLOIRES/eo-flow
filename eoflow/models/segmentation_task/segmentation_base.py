@@ -6,12 +6,12 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from ..base import BaseModel
+from eoflow.base import BaseModel
 
-from .losses import CategoricalCrossEntropy, CategoricalFocalLoss, JaccardDistanceLoss, TanimotoDistanceLoss
-from .losses import cropped_loss
-from .metrics import MeanIoU, InitializableMetric, CroppedMetric, MCCMetric
-from .callbacks import VisualizationCallback
+from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, JaccardDistanceLoss, TanimotoDistanceLoss
+from eoflow.models.losses import cropped_loss
+from eoflow.models.metrics import MeanIoU, InitializableMetric, CroppedMetric, MCCMetric
+from eoflow.models.callbacks import VisualizationCallback
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
