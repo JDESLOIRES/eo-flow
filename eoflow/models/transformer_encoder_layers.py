@@ -147,9 +147,7 @@ class EncoderLayer(tf.keras.layers.Layer):
 
         ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model)
         ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
-
-        return out2
+        return self.layernorm2(out1 + ffn_output)
 
 
 class Encoder(tf.keras.layers.Layer):

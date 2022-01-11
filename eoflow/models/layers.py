@@ -47,7 +47,7 @@ class ResidualBlock(tf.keras.layers.Layer):
         self.kernel_initializer = kernel_initializer
         self.kernel_regularizer = kernel_regularizer
         self.last_block = last_block
-        self.residual_layers = list()
+        self.residual_layers = []
         self.shape_match_conv = None
         self.res_output_shape = None
         self.final_activation = None
@@ -263,14 +263,13 @@ class Deconv2D(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size=2, batch_normalization=False):
         super().__init__()
 
-        layer = []
-        layer.append(tf.keras.layers.Conv2DTranspose(
+        layer = [tf.keras.layers.Conv2DTranspose(
             filters=filters,
             kernel_size=kernel_size,
             strides=kernel_size,
             padding='SAME',
             activation='relu'
-        ))
+        )]
 
         if batch_normalization:
             layer.append(tf.keras.layers.BatchNormalization())
@@ -328,14 +327,13 @@ class Reduce3DTo2D(tf.keras.layers.Layer):
 
     def build(self, input_size):
         t_size = input_size[1]
-        layer = []
-        layer.append(tf.keras.layers.Conv3D(
+        layer = [tf.keras.layers.Conv3D(
             self.filters,
             kernel_size=(t_size, self.kernel_size, self.kernel_size),
             strides=(1, self.stride, self.stride),
             padding='VALID',
             activation='relu'
-        ))
+        )]
 
         if self.add_dropout:
             layer.append(tf.keras.layers.Dropout(rate=self.dropout_rate))
