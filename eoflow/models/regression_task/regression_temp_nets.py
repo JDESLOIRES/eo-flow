@@ -183,19 +183,20 @@ class TempCNNModel(BaseRegressionModel):
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
-    def _cnn_layer(self, net, i):
+    def _cnn_layer(self, net, i = 0):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
-        if self.enumerate:
+
+        if self.config.enumerate:
             filters = filters * (i+1)
 
-        layer = Conv1D(filters=filters,
-                     kernel_size=self.config.kernel_size,
-                     strides=self.config.nb_conv_strides,
-                     padding=self.config.padding,
-                     kernel_initializer=self.config.kernel_initializer,
-                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        layer = tf.keras.layers.Conv1D(filters=filters,
+                                       kernel_size=self.config.kernel_size,
+                                       strides=self.config.nb_conv_strides,
+                                       padding=self.config.padding,
+                                       kernel_initializer=self.config.kernel_initializer,
+                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
 
@@ -205,7 +206,7 @@ class TempCNNModel(BaseRegressionModel):
 
     def _embeddings(self,net):
         if self.config.final_layer == 'Flatten':
-            net = tf.keras.layers.Flatten()(net)
+            net = tf.keras.layers.Flatten(name="thelayer")(net)
         elif self.config.final_layer == 'GlobalAveragePooling1D':
             net = tf.keras.layers.GlobalAveragePooling1D()(net)
         elif self.config.final_layer == 'MaxPool1D':
@@ -233,17 +234,16 @@ class TempCNNModel(BaseRegressionModel):
         time-frames, and `D` the number of channels
         """
         x = tf.keras.layers.Input(inputs_shape[1:])
+
         net = x
-
-        dropout_rate = 1 - self.config.keep_prob
-
-        for i, _ in enumerate(range(self.config.nb_conv_stacks)):
+        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
             net = self._cnn_layer(net, i)
 
-        net = self._embeddings(net)
+        conv = self._cnn_layer(net)
+        embeddings = self._embeddings(conv)
 
         for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net)
+            net = self._fcn_layer(embeddings)
 
         net = Dense(units = 1,
                     activation = 'linear',
@@ -251,11 +251,17 @@ class TempCNNModel(BaseRegressionModel):
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
+        self.backbone = tf.keras.Model(inputs = x, outputs = embeddings )
 
         print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
+
+    def get_feature_map(self, inputs, training=None):
+        return self.backbone(inputs, training)
+
+
 
 
 class BiRNN(BaseRegressionModel):
