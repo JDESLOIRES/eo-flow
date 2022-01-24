@@ -63,11 +63,11 @@ class TCNModel(BaseClassificationModel):
         residual_blocks = list()
         skip_connections = list()
 
-        total_num_blocks = self.config.nb_stacks * len(self.config.dilations)
+        total_num_blocks = self.config.nb_conv_stacks * len(self.config.dilations)
         if not self.config.use_skip_connections:
             total_num_blocks += 1  # cheap way to do a false case for below
 
-        for s in range(self.config.nb_stacks):
+        for s in range(self.config.nb_conv_stacks):
             for d in self.config.dilations:
                 net, skip_out = ResidualBlock(dilation_rate=d,
                                               nb_filters=self.config.nb_filters,
@@ -75,8 +75,8 @@ class TCNModel(BaseClassificationModel):
                                               padding=self.config.padding,
                                               activation=self.config.activation,
                                               dropout_rate=dropout_rate,
-                                              use_batch_norm=self.config.use_batch_norm,
-                                              use_layer_norm=self.config.use_layer_norm,
+                                              use_batch_norm=self.config.batch_norm,
+                                              use_layer_norm=self.config.layer_norm,
                                               kernel_initializer=self.config.kernel_initializer,
                                               last_block=len(residual_blocks) + 1 == total_num_blocks,
                                               name=f'residual_block_{len(residual_blocks)}')(net)
@@ -147,7 +147,7 @@ class TempCNNModel(BaseClassificationModel):
                                          padding=self.config.padding,
                                          kernel_initializer=self.config.kernel_initializer,
                                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.use_batch_norm:
+            if self.config.batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
             net = tf.keras.layers.Activation(self.config.activation)(net)
@@ -160,7 +160,7 @@ class TempCNNModel(BaseClassificationModel):
             net = tf.keras.layers.Dense(units=self.config.nb_fc_neurons,
                                         kernel_initializer=self.config.kernel_initializer,
                                         kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.use_batch_norm:
+            if self.config.batch_norm:
                 net = tf.keras.layers.BatchNormalization(axis=-1)(net)
 
             net = tf.keras.layers.Activation(self.config.activation)(net)

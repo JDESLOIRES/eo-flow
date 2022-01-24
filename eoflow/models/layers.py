@@ -136,6 +136,7 @@ class ResidualBlock(tf.keras.layers.Layer):
         return [self.res_output_shape, self.res_output_shape]
 
 
+
 class Conv2D(tf.keras.layers.Layer):
     """ Multiple repetitions of 2d convolution, batch normalization and dropout layers. """
 
@@ -230,16 +231,17 @@ class Conv3D(tf.keras.layers.Layer):
         t_size = kernel_size if convolve_time else 1
         kernel_shape = (t_size, kernel_size, kernel_size)
 
-        for i in range(num_repetitions):
-            layer = []
-            layer.append(tf.keras.layers.Conv3D(
-                filters=filters,
-                kernel_size=kernel_shape,
-                strides=strides,
-                padding=padding,
-                use_bias=use_bias,
-                activation='relu'
-            ))
+        for _ in range(num_repetitions):
+            layer = [
+                tf.keras.layers.Conv3D(
+                    filters=filters,
+                    kernel_size=kernel_shape,
+                    strides=strides,
+                    padding=padding,
+                    use_bias=use_bias,
+                    activation='relu',
+                )
+            ]
 
             if batch_normalization:
                 layer.append(tf.keras.layers.BatchNormalization())

@@ -30,7 +30,7 @@ class TCNModel(BaseRegressionModel):
 
         kernel_size = fields.Int(missing=2, description='Size of the convolution kernels.')
         nb_filters = fields.Int(missing=64, description='Number of convolutional filters.')
-        nb_stacks = fields.Int(missing=1)
+        nb_conv_stacks = fields.Int(missing=1)
         dilations = fields.List(fields.Int, missing=[1, 2, 4, 8, 16, 32], description='Size of dilations used in the '
                                                                                       'covolutional layers')
         padding = fields.String(missing='CAUSAL', validate=OneOf(['CAUSAL', 'SAME']),
@@ -41,8 +41,24 @@ class TCNModel(BaseRegressionModel):
         kernel_initializer = fields.Str(missing='he_normal', description='method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=0, description='L2 regularization parameter.')
 
-        use_batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
-        use_layer_norm = fields.Bool(missing=False, description='Whether to use layer normalisation.')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        layer_norm = fields.Bool(missing=False, description='Whether to use layer normalisation.')
+
+    def _cnn_layer(self, net):
+
+        dropout_rate = 1 - self.config.keep_prob
+
+        layer = tf.keras.layers.Conv1D(filters= self.config.nb_filters,
+                                       kernel_size=self.config.kernel_size,
+                                       padding=self.config.padding,
+                                       kernel_initializer=self.config.kernel_initializer,
+                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        if self.config.batch_norm:
+            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
+
+        layer = tf.keras.layers.Dropout(dropout_rate)(layer)
+        layer = tf.keras.layers.Activation(self.config.activation)(layer)
+        return layer
 
     def build(self, inputs_shape):
         """ Build TCN architecture
@@ -56,21 +72,17 @@ class TCNModel(BaseRegressionModel):
 
         net = x
 
-        net = tf.keras.layers.Conv1D(filters=self.config.nb_filters,
-                                     kernel_size=self.config.kernel_size,
-                                     padding=self.config.padding,
-                                     kernel_regularizer = tf.keras.regularizers.l2(self.config.kernel_regularizer),
-                                     kernel_initializer=self.config.kernel_initializer)(net)
+        net = self._cnn_layer(net)
 
         # list to hold all the member ResidualBlocks
-        residual_blocks = []
-        skip_connections = []
+        residual_blocks = list()
+        skip_connections = list()
 
-        total_num_blocks = self.config.nb_stacks * len(self.config.dilations)
+        total_num_blocks = self.config.nb_conv_stacks * len(self.config.dilations)
         if not self.config.use_skip_connections:
             total_num_blocks += 1  # cheap way to do a false case for below
 
-        for _ in range(self.config.nb_stacks):
+        for _ in range(self.config.nb_conv_stacks):
             for d in self.config.dilations:
                 net, skip_out = ResidualBlock(dilation_rate=d,
                                               nb_filters=self.config.nb_filters,
@@ -78,14 +90,14 @@ class TCNModel(BaseRegressionModel):
                                               padding=self.config.padding,
                                               activation=self.config.activation,
                                               dropout_rate=dropout_rate,
-                                              use_batch_norm=self.config.use_batch_norm,
-                                              use_layer_norm=self.config.use_layer_norm,
+                                              use_batch_norm=self.config.batch_norm,
+                                              use_layer_norm=self.config.layer_norm,
                                               kernel_initializer=self.config.kernel_initializer,
-                                              kernel_regularizer=self.config.kernel_regularizer,
                                               last_block=len(residual_blocks) + 1 == total_num_blocks,
-                                              name=f'residual_block_{len(residual_blocks)}')
+                                              name=f'residual_block_{len(residual_blocks)}')(net)
                 residual_blocks.append(net)
                 skip_connections.append(skip_out)
+
 
         # Author: @karolbadowski.
         output_slice_index = int(net.shape.as_list()[1] / 2) \
@@ -99,7 +111,6 @@ class TCNModel(BaseRegressionModel):
             net = lambda_layer(net)
 
         net = tf.keras.layers.Dense(1, activation='linear')(net)
-
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
@@ -171,7 +182,7 @@ class TempCNNModel(BaseRegressionModel):
         nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'MaxPool1D']),
+        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
                                     description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
@@ -187,12 +198,14 @@ class TempCNNModel(BaseRegressionModel):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
+        kernel_size = self.config.kernel_size
 
         if self.config.enumerate:
-            filters = filters * (i+1)
+            filters = filters * (2**i)
+            kernel_size = kernel_size * (i+1)
 
         layer = tf.keras.layers.Conv1D(filters=filters,
-                                       kernel_size=self.config.kernel_size,
+                                       kernel_size=kernel_size,
                                        strides=self.config.nb_conv_strides,
                                        padding=self.config.padding,
                                        kernel_initializer=self.config.kernel_initializer,
@@ -200,17 +213,21 @@ class TempCNNModel(BaseRegressionModel):
         if self.config.batch_norm:
             layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
 
+        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
+
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
         return layer
 
     def _embeddings(self,net):
+
+        name = "embedding"
         if self.config.final_layer == 'Flatten':
-            net = tf.keras.layers.Flatten(name="thelayer")(net)
+            net = tf.keras.layers.Flatten(name=name)(net)
         elif self.config.final_layer == 'GlobalAveragePooling1D':
-            net = tf.keras.layers.GlobalAveragePooling1D()(net)
-        elif self.config.final_layer == 'MaxPool1D':
-            net = tf.keras.layers.MaxPool1D()(net)
+            net = tf.keras.layers.GlobalAveragePooling1D(name=name)(net)
+        elif self.config.final_layer == 'GlobalMaxPooling1D':
+            net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
 
         return net
 
@@ -236,11 +253,10 @@ class TempCNNModel(BaseRegressionModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
+        for i, _ in enumerate(range(self.config.nb_conv_stacks)):
             net = self._cnn_layer(net, i)
 
-        conv = self._cnn_layer(net)
-        embeddings = self._embeddings(conv)
+        embeddings = self._embeddings(net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(embeddings)
@@ -251,7 +267,7 @@ class TempCNNModel(BaseRegressionModel):
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
-        self.backbone = tf.keras.Model(inputs = x, outputs = embeddings )
+        self.backbone = tf.keras.Model(inputs = x, outputs = embeddings)
 
         print_summary(self.net)
 
@@ -358,13 +374,268 @@ class BiRNN(BaseRegressionModel):
         return self.net(inputs, training)
 
 
-class TransformerEncoder(BaseRegressionModel):
-    """ Implementation of a self-attention
 
+#https://www.sciencedirect.com/science/article/pii/S0034425721003205
+
+
+class ConvLSTM(BaseRegressionModel):
+    """ Implementation of a Bidirectional Recurrent Neural Network
+
+    This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
+    """
+
+
+    class ConvLSTMShema(BaseRegressionModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
+        nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
+        nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
+        nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+
+        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+                                    description='Final layer after the convolutions.')
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                description='Padding type used in convolutions.')
+        pooling = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                  description='Padding type used in convolutions.')
+
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+
+        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+
+        rnn_layer = fields.String(required=True, validate=OneOf(['rnn', 'lstm', 'gru']),
+                                  description='Type of RNN layer to use')
+
+        rnn_units = fields.Int(missing=64, description='Size of the convolution kernels.')
+        rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
+        bidirectional = fields.Bool(missing=True, description='Whether to use a bidirectional layer')
+
+        layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
+
+    def _cnn_layer(self):
+
+
+    def _cnn_layer(self, net, i = 0):
+
+        dropout_rate = 1 - self.config.keep_prob
+        filters = self.config.nb_conv_filters
+        kernel_size = self.config.kernel_size
+
+        if self.config.enumerate:
+            filters = filters * (2**i)
+            kernel_size = kernel_size * (i+1)
+
+        layer =  tf.keras.layers.Conv2D(
+            filters, kernel_size, strides=(1, 1), padding='valid',
+            data_format=None, dilation_rate=(1, 1), groups=1, activation=None,
+            use_bias=True, kernel_initializer='glorot_uniform',
+            bias_initializer='zeros', kernel_regularizer=None,
+            bias_regularizer=None, activity_regularizer=None, kernel_constraint=None,
+            bias_constraint=None, **kwargs
+        )(net)
+
+        if self.config.batch_norm:
+            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
+
+        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
+
+        layer = tf.keras.layers.Dropout(dropout_rate)(layer)
+        layer = tf.keras.layers.Activation(self.config.activation)(layer)
+        return layer
+
+
+    def _rnn_layer(self, last=False):
+        """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
+        RNNLayer = rnn_layers[self.config.rnn_layer]
+        dropout_rate = 1 - self.config.keep_prob
+
+        layer = RNNLayer(
+            units=self.config.rnn_units,
+            dropout=dropout_rate,
+            return_sequences=not last,
+        )
+
+        # Use bidirectional if specified
+        if self.config.bidirectional:
+            layer = tf.keras.layers.Bidirectional(layer)
+
+        return layer
+
+    def _fcn_layer(self):
+        dropout_rate = 1 - self.config.keep_prob
+        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+                          kernel_initializer=self.config.kernel_initializer,
+                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
+        if self.config.batch_norm:
+            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+
+        return layer_fcn
+
+    def init_model(self):
+        """ Creates the RNN model architecture. """
+
+        layers = []
+        if self.config.layer_norm:
+            layer_norm = tf.keras.layers.LayerNormalization()
+            layers.append(layer_norm)
+
+        # RNN layers
+        layers.extend([self._rnn_layer() for _ in range(self.config.rnn_blocks-1)])
+        layers.append(self._rnn_layer(last=True))
+
+        if self.config.batch_norm:
+            batch_norm = tf.keras.layers.BatchNormalization()
+            layers.append(batch_norm)
+
+        if self.config.layer_norm:
+            layer_norm = tf.keras.layers.LayerNormalization()
+            layers.append(layer_norm)
+
+        layers.extend([self._fcn_layer() for _ in range(self.config.nb_fc_stacks)])
+
+        dense = tf.keras.layers.Dense(units=1,
+                                      activation='linear',
+                                      kernel_initializer=self.config.kernel_initializer,
+                                      kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
+
+        layers.append(dense)
+
+        self.net = tf.keras.Sequential(layers)
+
+    def build(self, inputs_shape):
+        self.net.build(inputs_shape)
+
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+
+class CNNTRransformer(BaseRegressionModel):
+    # https://www.sciencedirect.com/science/article/pii/S0034425721003205 ~ having like image conv MHA (input, time, h, w, c)
+    """ Implementation of a Bidirectional Recurrent Neural Network
+
+    This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
+    """
+
+
+    class ConvLSTMShema(BaseRegressionModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
+        nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
+        nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
+        nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+
+        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+                                    description='Final layer after the convolutions.')
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                description='Padding type used in convolutions.')
+        pooling = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                  description='Padding type used in convolutions.')
+
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+
+
+    def _cnn_layer(self, net, i = 0):
+
+        dropout_rate = 1 - self.config.keep_prob
+        filters = self.config.nb_conv_filters
+        kernel_size = self.config.kernel_size
+
+        if self.config.enumerate:
+            filters = filters * (2**i)
+            kernel_size = kernel_size * (i+1)
+
+        layer =  tf.keras.layers.Conv2D(
+            filters, kernel_size, strides=(1, 1), padding='valid',
+            data_format=None, dilation_rate=(1, 1), groups=1, activation=None,
+            use_bias=True, kernel_initializer='glorot_uniform',
+            bias_initializer='zeros', kernel_regularizer=None,
+            bias_regularizer=None, activity_regularizer=None, kernel_constraint=None,
+            bias_constraint=None, **kwargs
+        )(net)
+
+        if self.config.batch_norm:
+            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
+
+        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
+
+        layer = tf.keras.layers.Dropout(dropout_rate)(layer)
+        layer = tf.keras.layers.Activation(self.config.activation)(layer)
+        return layer
+
+
+    def _fcn_layer(self):
+        dropout_rate = 1 - self.config.keep_prob
+        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+                          kernel_initializer=self.config.kernel_initializer,
+                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
+        if self.config.batch_norm:
+            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+
+        return layer_fcn
+
+    def init_model(self):
+        """ Creates the RNN model architecture. """
+
+        layers = []
+        if self.config.layer_norm:
+            layer_norm = tf.keras.layers.LayerNormalization()
+            layers.append(layer_norm)
+
+        # RNN layers
+        layers.extend([self._rnn_layer() for _ in range(self.config.rnn_blocks-1)])
+        layers.append(self._rnn_layer(last=True))
+
+        if self.config.batch_norm:
+            batch_norm = tf.keras.layers.BatchNormalization()
+            layers.append(batch_norm)
+
+        if self.config.layer_norm:
+            layer_norm = tf.keras.layers.LayerNormalization()
+            layers.append(layer_norm)
+
+        layers.extend([self._fcn_layer() for _ in range(self.config.nb_fc_stacks)])
+
+        dense = tf.keras.layers.Dense(units=1,
+                                      activation='linear',
+                                      kernel_initializer=self.config.kernel_initializer,
+                                      kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
+
+        layers.append(dense)
+
+        self.net = tf.keras.Sequential(layers)
+
+    def build(self, inputs_shape):
+        self.net.build(inputs_shape)
+
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+
+
+
+class TransformerEncoder(BaseClassificationModel):
+    """ Implementation of a self-attention classifier
     Code is based on the Pytorch implementation of Marc Russwurm https://github.com/MarcCoru/crop-type-mapping
     """
 
-    class TransformerEncoderSchema(BaseRegressionModel._Schema):
+    class TransformerEncoderSchema(BaseClassificationModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
 
         num_heads = fields.Int(missing=8, description='Number of Attention heads.')
@@ -386,12 +657,11 @@ class TransformerEncoder(BaseRegressionModel):
             maximum_position_encoding=self.config.max_pos_enc,
             layer_norm=self.config.layer_norm)
 
-        self.dense = tf.keras.layers.Dense(units=1,
-                                           activation=self.activation)
+        self.dense = tf.keras.layers.Dense(units=self.config.n_classes,
+                                           activation=self.config.activation)
 
     def build(self, inputs_shape):
         """ Build Transformer encoder architecture
-
         The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
         time-frames, and `D` the number of channels
         """
@@ -402,8 +672,7 @@ class TransformerEncoder(BaseRegressionModel):
             self.dense,
             tf.keras.layers.MaxPool1D(pool_size=seq_len),
             tf.keras.layers.Lambda(lambda x: tf.keras.backend.squeeze(x, axis=-2), name='squeeze'),
-            tf.keras.layers.Dense(units=1,
-                                  activation='linear')
+            tf.keras.layers.Softmax()
         ])
         # Build the model, so we can print the summary
         self.net.build(inputs_shape)
@@ -413,6 +682,11 @@ class TransformerEncoder(BaseRegressionModel):
     def call(self, inputs, training=None, mask=None):
         return self.net(inputs, training, mask)
 
+
+
+
+
+########################################################################################################################################################
 
 class PseTae(BaseRegressionModel):
     """ Implementation of the Pixel-Set encoder + Temporal Attention Encoder sequence classifier
