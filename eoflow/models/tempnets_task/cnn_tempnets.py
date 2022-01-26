@@ -205,10 +205,11 @@ class TempCNNModel(BaseTempnetsModel):
         for i, _ in enumerate(range(self.config.nb_conv_stacks)):
             net = self._cnn_layer(net, i)
 
-        embeddings = self._embeddings(net)
+        net = self._embeddings(net)
+        self.backbone = tf.keras.Model(inputs=x, outputs=net)
 
         for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(embeddings)
+            net = self._fcn_layer(net)
 
         net = Dense(units = 1,
                     activation = 'linear',
@@ -216,7 +217,6 @@ class TempCNNModel(BaseTempnetsModel):
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
-        self.backbone = tf.keras.Model(inputs = x, outputs = embeddings)
 
         print_summary(self.net)
 
@@ -315,10 +315,11 @@ class HistogramCNNModel(BaseTempnetsModel):
             net = self._cnn_layer(net, i)
             net = self._cnn_layer(net, i)
 
-        embeddings = self._embeddings(net)
+        net = self._embeddings(net)
+        self.backbone = tf.keras.Model(inputs=x, outputs=net)
 
         for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(embeddings)
+            net = self._fcn_layer(net)
 
         net = Dense(units = 1,
                     activation = 'linear',
@@ -326,7 +327,6 @@ class HistogramCNNModel(BaseTempnetsModel):
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
-        self.backbone = tf.keras.Model(inputs = x, outputs = embeddings)
 
         print_summary(self.net)
 
