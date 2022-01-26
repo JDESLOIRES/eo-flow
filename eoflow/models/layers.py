@@ -140,7 +140,9 @@ class ResidualBlock(tf.keras.layers.Layer):
 class Conv2D(tf.keras.layers.Layer):
     """ Multiple repetitions of 2d convolution, batch normalization and dropout layers. """
 
-    def __init__(self, filters, kernel_size=3, strides=1, dilation=1, padding='VALID', add_dropout=True,
+    def __init__(self, filters, kernel_size=3,
+                 strides=1, dilation=1, padding='VALID',
+                 add_dropout=True,
                  dropout_rate=0.2, activation='relu', batch_normalization=False, use_bias=True, num_repetitions=1):
         super().__init__()
 
