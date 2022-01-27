@@ -234,7 +234,7 @@ class HistogramCNNModel(BaseTempnetsModel):
         https://github.com/charlotte-pel/temporalCNN
     """
 
-    class TempCNNModelSchema(BaseTempnetsModel._Schema):
+    class HistogramCNNModel(BaseTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
         kernel_size = fields.List(fields.Int, missing=2, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
