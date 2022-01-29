@@ -73,8 +73,8 @@ class TCNModel(BaseTempnetsModel):
         net = self._cnn_layer(net)
 
         # list to hold all the member ResidualBlocks
-        residual_blocks = list()
-        skip_connections = list()
+        residual_blocks = []
+        skip_connections = []
 
         total_num_blocks = self.config.nb_conv_stacks * len(self.config.dilations)
         if not self.config.use_skip_connections:
@@ -187,7 +187,7 @@ class TempCNNModel(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
 
         return layer_fcn

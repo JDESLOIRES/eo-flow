@@ -2,7 +2,7 @@ from marshmallow import Schema, fields
 
 from ..base import BaseTask
 from ..base.configuration import ObjectConfiguration
-
+#https://github.com/sghoshjr/Domain-Adversarial-Neural-Network/blob/master/DANN.py
 
 class TrainTask(BaseTask):
     class TrainTaskConfig(Schema):

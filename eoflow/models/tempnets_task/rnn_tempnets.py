@@ -44,7 +44,7 @@ class BiRNN(BaseTempnetsModel):
         layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
-    def _rnn_layer(self, last=False):
+    def _rnn_layer(self, net, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
         RNNLayer = rnn_layers[self.config.rnn_layer]
         dropout_rate = 1 - self.config.keep_prob
@@ -59,7 +59,7 @@ class BiRNN(BaseTempnetsModel):
         if self.config.bidirectional:
             layer = tf.keras.layers.Bidirectional(layer)
 
-        return layer
+        return layer(net)
 
 
     def _fcn_layer(self, net):
@@ -69,47 +69,41 @@ class BiRNN(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
 
         return layer_fcn
 
-    def init_model(self):
+    def build(self, inputs_shape):
         """ Creates the RNN model architecture. """
 
-        layers = []
-        if self.config.layer_norm:
-            layer_norm = tf.keras.layers.LayerNormalization()
-            layers.append(layer_norm)
-
-        # RNN layers
-        layers.extend([self._rnn_layer() for _ in range(self.config.rnn_blocks-1)])
-        layers.append(self._rnn_layer(last=True))
-
-        if self.config.batch_norm:
-            batch_norm = tf.keras.layers.BatchNormalization()
-            layers.append(batch_norm)
+        x = tf.keras.layers.Input(inputs_shape[1:])
+        net = x
 
         if self.config.layer_norm:
-            layer_norm = tf.keras.layers.LayerNormalization()
-            layers.append(layer_norm)
+            net = tf.keras.layers.LayerNormalization(axis=-1)(net)
 
-        layers.extend([self._fcn_layer() for _ in range(self.config.nb_fc_stacks)])
+        for _ in range(self.config.rnn_blocks -1):
+            net = self._rnn_layer(net)
+        net = self._rnn_layer(net, last=True)
 
-        dense = tf.keras.layers.Dense(units=1,
+        if self.config.layer_norm:
+            net = tf.keras.layers.LayerNormalization(axis=-1)(net)
+
+        for _ in range(self.config.nb_fc_stacks):
+            net = self._fcn_layer(net)
+
+        net = tf.keras.layers.Dense(units=1,
                                       activation='linear',
                                       kernel_initializer=self.config.kernel_initializer,
-                                      kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))
+                                      kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
-        layers.append(dense)
+        self.net = tf.keras.Model(inputs=x, outputs=net)
 
-        self.net = tf.keras.Sequential(layers)
+        print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
-
-    def get_feature_map(self, inputs, training=None):
-        return self.backbone(inputs, training)
 
 
 
@@ -131,8 +125,7 @@ class ConvLSTM(BaseTempnetsModel):
         nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
-                                    description='Final layer after the convolutions.')
+
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
@@ -171,18 +164,6 @@ class ConvLSTM(BaseTempnetsModel):
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
         return layer
 
-    def _embeddings(self,net):
-
-        name = "embedding"
-        if self.config.final_layer == 'Flatten':
-            net = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten(name=name))(net)
-        elif self.config.final_layer == 'GlobalAveragePooling1D':
-            net = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling1D(name=name))(net)
-        elif self.config.final_layer == 'GlobalMaxPooling1D':
-            net = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalMaxPooling1D(name=name))(net)
-
-        return net
-
     def _rnn_layer(self, net, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
         RNNLayer = rnn_layers[self.config.rnn_layer]
@@ -192,14 +173,13 @@ class ConvLSTM(BaseTempnetsModel):
             units=self.config.rnn_units,
             dropout=dropout_rate,
             return_sequences=not last,
-        )(net)
+        )
 
         # Use bidirectional if specified
         if self.config.bidirectional:
-            layer = tf.keras.layers.Bidirectional(layer)(net)
+            layer = tf.keras.layers.Bidirectional(layer)
 
-        return layer
-
+        return layer(net)
 
     def _fcn_layer(self, net):
         dropout_rate = 1 - self.config.keep_prob
@@ -208,7 +188,7 @@ class ConvLSTM(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
 
         return layer_fcn
@@ -224,8 +204,6 @@ class ConvLSTM(BaseTempnetsModel):
         net = x
         for i, _ in enumerate(range(self.config.nb_conv_stacks)):
             net = self._cnn_layer(net, i)
-
-        net = self._embeddings(net)
 
         for i, _ in range(self.config.rnn_blocks-1):
             net = self._rnn_layer(net)

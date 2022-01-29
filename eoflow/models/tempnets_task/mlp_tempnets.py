@@ -31,6 +31,18 @@ class MLP(BaseTempnetsModel):
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
+    def _fcn_layer(self, net):
+        dropout_rate = 1 - self.config.keep_prob
+        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+                          kernel_initializer=self.config.kernel_initializer,
+                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        if self.config.batch_norm:
+            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+
+        return layer_fcn
+
     def build(self, inputs_shape):
         """ Build TCN architecture
 
@@ -40,17 +52,8 @@ class MLP(BaseTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
         net = x
 
-        dropout_rate = 1 - self.config.keep_prob
-
         for _ in range(self.config.nb_fc_stacks):
-            net = Dense(units=self.config.nb_fc_neurons,
-                                        kernel_initializer=self.config.kernel_initializer,
-                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-            if self.config.batch_norm:
-                net = tf.keras.layers.BatchNormalization(axis=-1)(net)
-
-            net = tf.keras.layers.Dropout(dropout_rate)(net)
-            net = tf.keras.layers.Activation(self.config.activation)(net)
+            net = self._fcn_layer(net)
 
         net = tf.keras.layers.Dense(units = 1,
                                     activation = 'linear',
