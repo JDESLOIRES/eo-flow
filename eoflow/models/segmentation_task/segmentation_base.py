@@ -6,7 +6,7 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModel
+from eoflow.base import BaseModelTraining
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, JaccardDistanceLoss, TanimotoDistanceLoss
 from eoflow.models.losses import cropped_loss
@@ -36,7 +36,7 @@ segmentation_metrics = {
 }
 
 
-class BaseSegmentationModel(BaseModel):
+class BaseSegmentationModel(BaseModelTraining):
     """ Base for segmentation models. """
 
     class _Schema(Schema):
@@ -77,7 +77,7 @@ class BaseSegmentationModel(BaseModel):
             loss = self.config.loss
 
         if metrics is None:
-            metrics = self.config.metrics
+            metrics = self.config.metric
 
         class_weights = self._prepare_class_weights()
 

@@ -1,10 +1,10 @@
-from eoflow.base import BaseModel
+from eoflow.base import BaseModelTraining
 import tensorflow as tf
 
 from marshmallow import Schema, fields
 
 
-class ExampleModel(BaseModel):
+class ExampleModel(BaseModelTraining):
     """ Example implementation of a model. Builds a fully connected net with a single hidden layer. """
 
     class _Schema(Schema):
@@ -34,6 +34,6 @@ class ExampleModel(BaseModel):
 
         loss = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
 
-        metrics = tf.keras.metrics.CategoricalAccuracy(name='accuracy')
+        metrics = tf.keras.metric.CategoricalAccuracy(name='accuracy')
 
         self.compile(optimizer=optimizer, loss=loss, metrics=[metrics], **kwargs)

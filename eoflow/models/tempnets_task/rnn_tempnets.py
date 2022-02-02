@@ -162,6 +162,7 @@ class ConvLSTM(BaseTempnetsModel):
 
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
+
         return layer
 
     def _rnn_layer(self, net, last=False):
@@ -188,8 +189,10 @@ class ConvLSTM(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+
 
         return layer_fcn
 

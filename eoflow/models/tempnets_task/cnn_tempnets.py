@@ -13,6 +13,7 @@ from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
 
+
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
@@ -112,7 +113,7 @@ class TCNModel(BaseTempnetsModel):
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
-        print_summary(self.net)
+        #print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
@@ -138,6 +139,7 @@ class TempCNNModel(BaseTempnetsModel):
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -162,10 +164,10 @@ class TempCNNModel(BaseTempnetsModel):
         if self.config.batch_norm:
             layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
 
-        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
-
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
+
+
         return layer
 
     def _embeddings(self,net):
@@ -187,8 +189,10 @@ class TempCNNModel(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
 
         return layer_fcn
 
@@ -229,9 +233,9 @@ class TempCNNModel(BaseTempnetsModel):
 
 
 class HistogramCNNModel(BaseTempnetsModel):
-    """ Implementation of the TempCNN network taken from the temporalCNN implementation
+    """ Implementation of the CNN2D with histogram time series
 
-        https://github.com/charlotte-pel/temporalCNN
+        https://cs.stanford.edu/~ermon/papers/cropyield_AAAI17.pdf
     """
 
     class HistogramCNNModel(BaseTempnetsModel._Schema):
@@ -242,7 +246,7 @@ class HistogramCNNModel(BaseTempnetsModel):
         nb_conv_strides = fields.List(fields.Int, missing=2, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling2D', 'GlobalMaxPooling2D']),
                                     description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
@@ -252,15 +256,20 @@ class HistogramCNNModel(BaseTempnetsModel):
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
-    def _cnn_layer(self, net, i = 1):
+    def _cnn_layer(self, net, i = 1, last = False):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
-        s_i,s_j = self.config.nb_conv_strides
+        s_i, s_j = self.config.nb_conv_strides.copy()
 
         if self.config.enumerate:
             filters = filters * (2**i)
-            strides = (s_i*(i+1), s_i*(i+1))
+            if last:
+                strides = self.config.nb_conv_strides.copy()
+            else:
+                strides = (s_i * (i + 1), s_i * (i + 1))
+
+            print(strides)
 
         layer = tf.keras.layers.Conv2D(filters=filters,
                                        kernel_size=self.config.kernel_size,
@@ -283,9 +292,9 @@ class HistogramCNNModel(BaseTempnetsModel):
         if self.config.final_layer == 'Flatten':
             net = tf.keras.layers.Flatten(name=name)(net)
         elif self.config.final_layer == 'GlobalAveragePooling2D':
-            net = tf.keras.layers.GlobalAveragePooling1D(name=name)(net)
+            net = tf.keras.layers.GlobalAveragePooling2D(name=name)(net)
         elif self.config.final_layer == 'GlobalMaxPooling2D':
-            net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
+            net = tf.keras.layers.GlobalMaxPooling2D(name=name)(net)
 
         return net
 
@@ -298,6 +307,7 @@ class HistogramCNNModel(BaseTempnetsModel):
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
 
         return layer_fcn
 
@@ -313,7 +323,9 @@ class HistogramCNNModel(BaseTempnetsModel):
         net = x
         for i, _ in enumerate(range(self.config.nb_conv_stacks)):
             net = self._cnn_layer(net, i)
-            net = self._cnn_layer(net, i)
+            print(net.shape)
+            net = self._cnn_layer(net, i, True)
+            print(net.shape)
 
         net = self._embeddings(net)
         self.backbone = tf.keras.Model(inputs=x, outputs=net)
@@ -328,13 +340,10 @@ class HistogramCNNModel(BaseTempnetsModel):
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
-        print_summary(self.net)
+        #print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
 
     def get_feature_map(self, inputs, training=None):
         return self.backbone(inputs, training)
-
-
-
