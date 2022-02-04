@@ -8,7 +8,7 @@ from tensorflow.keras.layers import SimpleRNN, LSTM, GRU, Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
 
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 
-class MLP(BaseTempnetsModel):
+class MLP(BaseCustomTempnetsModel):
     """
     Implementation of the mlp network
     """

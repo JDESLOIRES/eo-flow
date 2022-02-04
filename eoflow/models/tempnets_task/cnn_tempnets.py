@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 
-class TCNModel(BaseTempnetsModel):
+class TCNModel(BaseCustomTempnetsModel):
     """ Implementation of the TCN network taken form the keras-TCN implementation
 
         https://github.com/philipperemy/keras-tcn

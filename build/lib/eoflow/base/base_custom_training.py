@@ -8,7 +8,7 @@ import os
 import tensorflow as tf
 
 from . import Configurable
-from eoflow.models.data_augmentation import add_random_shift, add_random_noise
+from eoflow.models.data_augmentation import add_random_shift, add_random_noise, add_random_target
 
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
@@ -42,7 +42,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def train_step(self,
-                   train_ds):
+                   train_ds,
+                   noisy = False):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
 
         for x_batch_train, y_batch_train in train_ds:  # tqdm
@@ -73,6 +74,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             save_steps=10,
             timeshift = 0,
             random_noise = 0,
+            noisy_label = False,
             function=np.max):
 
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
@@ -85,7 +87,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         _ = self(tf.zeros([n, t, d]))
 
-
         for epoch in range(num_epochs + 1):
 
             x_train_, y_train_ = shuffle(x_train, y_train)
@@ -93,6 +94,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 x_train_ = add_random_shift(x_train_, timeshift)
             if random_noise:
                 x_train_ = add_random_noise(x_train_, random_noise)
+            if noisy_label:
+                y_train_ = add_random_target(y_train_)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
@@ -122,12 +125,14 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                     and val_loss_epoch > function(val_loss)
                 ):
                     print('Best score seen so far ' + str(val_loss_epoch))
-                    self.save_weights(os.path.join(model_directory, 'model'))
+                    self.save_weights(os.path.join(model_directory, 'best_model'))
 
                 val_loss.append(val_loss_epoch)
                 val_acc.append(val_acc_result)
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
+
+        self.save_weights(os.path.join(model_directory, 'last_model'))
 
         # History of the training
         losses = dict(train_loss_results=train_loss,

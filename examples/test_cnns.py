@@ -6,6 +6,9 @@ import numpy as np
 import os
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
+
+
+
 ########################################################################################################################
 ########################################################################################################################
 def reshape_array(x, T=27) :
@@ -13,7 +16,7 @@ def reshape_array(x, T=27) :
     x = np.moveaxis(x, 2, 1)
     return x
 
-path = '/home/johann/Documents/Syngenta/2020/fold_5/'
+path = '/home/johann/Documents/Syngenta/2021/fold_5/'
 x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_train = reshape_array(x_train)
@@ -28,7 +31,7 @@ y_test = np.load(os.path.join(path, 'test_y.npy'))
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
-    "keep_prob" : 0.5,
+    "keep_prob" : 0.8,
     "nb_conv_filters": 16,
     "nb_conv_stacks": 3,  # Nb Conv layers
     "nb_fc_neurons" : 32,
@@ -39,7 +42,7 @@ model_cfg_cnn = {
     "batch_norm": True,
     "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
-    "final_layer" : 'Flatten',
+    "final_layer" : 'GlobalAveragePooling1D',
     "loss": "mse",
     "enumerate" : True,
     "metrics": "mse"
@@ -51,7 +54,7 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 model_cnn.prepare()
 
 # Train the model
-timeshift = 4
+timeshift = 3
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_val, y_val),
@@ -59,16 +62,23 @@ model_cnn.train_and_evaluate(
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    timeshift = 1,
-    model_directory='/home/johann/Documents/model_' + str(timeshift),
+    timeshift = 3,
+    model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
 )
+
 '''
 console 0 : timeshift = 2
 consiole 2 : timeshift = 0
 console 3 :timeshift = 4
 console 4 :timeshift = 1
 '''
-model_cnn.load_weights('/home/johann/Documents/model/model')
+#NOTE : modèle KR avec sans timeshit : 0.11 last model good mais -0,12 sinon ..
+#NOTE : modèle KR avec timeshit 3 : 0.15 last model good mais -0,22 sinon .. monté jusqu'a 0.25 :0
+#NOTE : modèle KR avec timeshit 3 + NL : -0.09 last model good mais -0,32 sinon ..
+#NOTE : modèle KR avec timeshit 3 + NL + RN : 0.08 last model good mais -0,32 sinon ..
+#Just timeshift 4 pas bon, timeshift 2 0.065
+timeshift =1
+model_cnn.load_weights('/home/johann/Documents/model_KR_NL_3' + '/model')
 t = model_cnn.predict(x_test)
 from sklearn.metrics import r2_score, mean_squared_error
 mean_squared_error(y_test, t)

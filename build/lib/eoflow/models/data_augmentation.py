@@ -26,3 +26,16 @@ def add_random_noise(x, value = 0.2, proba = 0.15):
                 else:
                     x[i, j, :] += np.random.uniform(low=0, high=value, size=(x.shape[2]))
     return x
+
+
+def add_random_target(y, proba = 0.15):
+    y = y.reshape(y.shape[0], 1)
+    for i in range(y.shape[0]):
+        prob = random.random()
+        if prob < proba:
+            prob /= proba
+            if prob < 0.5:
+                y[i,:] = y[i,:] * (1 + np.random.rand(1)/5)
+            else:
+                y[i,:] = y[i,:] * (1 - np.random.rand(1)/5)
+    return y
