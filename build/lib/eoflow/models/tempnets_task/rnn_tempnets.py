@@ -35,7 +35,7 @@ class BiRNN(BaseTempnetsModel):
         rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
         bidirectional = fields.Bool(missing=True, description='Whether to use a bidirectional layer')
 
-        activation = fields.Str(missing='relu', description='Activation function for fully connected layers')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         nb_fc_stacks = fields.Int(missing=0, description='Number of fully connected layers.')
@@ -69,8 +69,9 @@ class BiRNN(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
 
@@ -129,6 +130,7 @@ class ConvLSTM(BaseTempnetsModel):
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -191,8 +193,8 @@ class ConvLSTM(BaseTempnetsModel):
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
-
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
 

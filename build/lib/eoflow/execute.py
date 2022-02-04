@@ -3,7 +3,7 @@ import json
 
 from marshmallow import Schema, fields
 
-from .base import BaseModel, BaseTask
+from .base import BaseModelTraining, BaseTask
 from .base.configuration import ObjectConfiguration, Config
 from .utils import parse_classname
 
@@ -23,7 +23,7 @@ def execute(config_file):
 
     # Parse model config
     model_cls = parse_classname(config.model.classname)
-    if not issubclass(model_cls, BaseModel):
+    if not issubclass(model_cls, BaseModelTraining):
         raise ValueError("Model class does not inherit from BaseModel.")
     model = model_cls(config.model.config)
 

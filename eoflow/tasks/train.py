@@ -54,7 +54,7 @@ class TrainAndEvaluateTask(BaseTask):
         self.model.train_and_evaluate(
             train_dataset, val_dataset,
             num_epochs=self.config.num_epochs,
-            iterations_per_epoch=self.config.iterations_per_epoch,
+            saving_step=self.config.iterations_per_epoch,
             model_directory=self.config.model_directory,
             save_steps=self.config.save_steps,
             summary_steps=self.config.summary_steps

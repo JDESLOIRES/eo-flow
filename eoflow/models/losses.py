@@ -63,7 +63,8 @@ class CategoricalFocalLoss(Loss):
         Keras implementation: https://github.com/umbertogriffo/focal-loss-keras
     """
 
-    def __init__(self, gamma=2., alpha=.25, from_logits=True, class_weights=None, reduction=Reduction.AUTO,
+    def __init__(self, gamma=2., alpha=.25, from_logits=True, class_weights=None,
+                 reduction=Reduction.AUTO,
                  name='FocalLoss'):
         """Categorical version of focal loss.
 

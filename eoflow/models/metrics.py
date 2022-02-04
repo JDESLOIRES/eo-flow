@@ -104,6 +104,36 @@ class CroppedMetric(tf.keras.metrics.Metric):
         return self.metric.get_config()
 
 
+class RSquared(InitializableMetric):
+    def __init__(self,name = 'r_square'):
+        super().__init__(name=name, dtype=tf.float32)
+        self.metric = None
+
+    def init_from_config(self, model_config=None):
+        super().init_from_config(model_config)
+        self.metric = tfa.metrics.RSquare(dtype=tf.float32, y_shape=(1,))
+
+    def update_state(self, y_true, y_pred):
+        self.assert_initialized()
+
+        return self.metric.update_state(y_true, y_pred)
+
+    def result(self):
+        self.assert_initialized()
+
+        return self.metric.result()
+
+    def reset_states(self):
+        self.assert_initialized()
+
+        return self.metric.reset_states()
+
+    def get_config(self):
+        self.assert_initialized()
+
+        return self.metric.get_config()
+
+
 class MCCMetric(InitializableMetric):
     """ Computes Mathew Correlation Coefficient metric. Wraps metrics.MatthewsCorrelationCoefficient from
     tensorflow-addons, and reshapes the input (logits) into (m, n_classes) tensors. The logits are thresholded to get
@@ -194,15 +224,13 @@ class GeometricMetrics(InitializableMetric):
         ref_edge_size = np.sum(border_ref_edge)
         intersection = self._intersection(border_ref_edge, border_meas_edge)
         err = intersection / ref_edge_size if ref_edge_size != 0 else 0
-        be = 1. - err
-        return be
+        return 1. - err
 
     def _fragmentation_err(self, r: int, reference_mask: np.ndarray) -> float:
         if r <= 1:
             return 0
         den = np.sum(reference_mask) - self.pixel_size
-        err = (r - 1.) / den if den > 0 else 0
-        return err
+        return (r - 1.) / den if den > 0 else 0
 
     @staticmethod
     def _validate_input(reference, measurement):

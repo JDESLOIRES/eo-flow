@@ -9,8 +9,8 @@ from eoflow.base import BaseModelTraining, BaseModelCustomTraining
 import tensorflow as tensorflow
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss
-from eoflow.models.metrics import InitializableMetric
-import tensorflow_addons as tfa
+from eoflow.models.metrics import InitializableMetric, RSquared
+from eoflow.models.data_augmentation import add_random_noise, add_random_shift
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -33,22 +33,22 @@ dictionary_metrics = {
     'accuracy': tf.keras.metrics.CategoricalAccuracy(name='accuracy'),
     'precision': tf.keras.metrics.Precision,
     'recall': tf.keras.metrics.Recall,
-    'r_square' : tfa.metrics.r_square.RSquare(name='r_square')
+    'r_square' : RSquared
 }
 
 
-'''
-class BaseTempnetsModel(BaseModel):
+
+class BaseTempnetsModel(BaseModelTraining):
     """ Base for pixel-wise classification models. """
 
     class _Schema(Schema):
         #n_outputs = fields.Int(required=True, description='Number of output layers', example=1)
         learning_rate = fields.Float(missing=None, description='Learning rate used in training.', example=0.001)
         loss = fields.String(missing='mse', description='Loss function used for training.',
-                             validate=OneOf(regression_losses.keys()))
+                             validate=OneOf(dictionary_losses.keys()))
         metrics = fields.List(fields.String, missing=['mse'],
                               description='List of metrics used for evaluation.',
-                              validate=ContainsOnly(regression_metrics.keys()))
+                              validate=ContainsOnly(dictionary_metrics.keys()))
 
     def prepare(self, optimizer=None, loss=None, metrics=None, **kwargs):
         """ Prepares the model. Optimizer, loss and metrics are read using the following protocol:
@@ -67,13 +67,13 @@ class BaseTempnetsModel(BaseModel):
         if metrics is None:
             metrics = self.config.metric
 
-        loss = regression_losses[loss](**kwargs)
+        loss = dictionary_losses[loss](**kwargs)
 
         reported_metrics = []
         for metric in metrics:
 
-            if metric in regression_metrics:
-                metric = regression_metrics[metric](**kwargs)
+            if metric in dictionary_metrics:
+                metric = dictionary_metrics[metric](**kwargs)
 
             # Initialize initializable metrics
             if isinstance(metric, InitializableMetric):
@@ -114,9 +114,9 @@ class BaseTempnetsModel(BaseModel):
                                    save_steps=save_steps, summary_steps=summary_steps,
                                    callbacks=callbacks, **kwargs)
 
-'''
 
-class BaseTempnetsModel(BaseModelCustomTraining):
+
+class BaseCustomTempnetsModel(BaseModelCustomTraining):
     """ Base for pixel-wise classification models. """
 
     class _Schema(Schema):
@@ -143,13 +143,15 @@ class BaseTempnetsModel(BaseModelCustomTraining):
 
         if loss is None:
             loss = self.config.loss
-        if metrics is None:
-            metrics = self.config.metrics
-
-        self.metric = dictionary_metrics[metrics](**kwargs)
-
         loss = dictionary_losses[loss](**kwargs)
         self.loss_metric = loss_metric
+
+        if metrics is None:
+            metrics = self.config.metrics
+        self.metric = dictionary_metrics[metrics](**kwargs)
+
+        if isinstance(self.metric, InitializableMetric):
+            self.metric.init_from_config(self.config)
 
         self.compile(optimizer=optimizer, loss=loss, metrics=self.metric, **kwargs)
 
@@ -158,11 +160,11 @@ class BaseTempnetsModel(BaseModelCustomTraining):
                            train_dataset,
                            val_dataset,
                            num_epochs,
-                           iterations_per_epoch,
+                           save_steps,
                            model_directory,
                            **kwargs):
 
         super().train_and_evaluate(train_dataset, val_dataset,
-                                   num_epochs, iterations_per_epoch,
+                                   num_epochs, save_steps,
                                    model_directory,
                                    **kwargs)

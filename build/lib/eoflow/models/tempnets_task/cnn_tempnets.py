@@ -3,15 +3,12 @@ import tensorflow as tf
 from marshmallow import fields
 from marshmallow.validate import OneOf
 
-from keras.layers import TimeDistributed
-from tensorflow.keras.layers import SimpleRNN, LSTM, GRU, Dense
+from tensorflow.keras.layers import  Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
 
-from eoflow.models import transformer_encoder_layers
-from eoflow.models import pse_tae_layers
 
 
 logging.basicConfig(level=logging.INFO,
@@ -120,13 +117,13 @@ class TCNModel(BaseTempnetsModel):
 
 
 
-class TempCNNModel(BaseTempnetsModel):
+class TempCNNModel(BaseCustomTempnetsModel):
     """ Implementation of the TempCNN network taken from the temporalCNN implementation
 
         https://github.com/charlotte-pel/temporalCNN
     """
 
-    class TempCNNModelSchema(BaseTempnetsModel._Schema):
+    class TempCNNModelSchema(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
@@ -139,6 +136,7 @@ class TempCNNModel(BaseTempnetsModel):
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -190,8 +188,8 @@ class TempCNNModel(BaseTempnetsModel):
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
-
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
 
@@ -231,7 +229,6 @@ class TempCNNModel(BaseTempnetsModel):
 
 
 
-
 class HistogramCNNModel(BaseTempnetsModel):
     """ Implementation of the CNN2D with histogram time series
 
@@ -251,6 +248,7 @@ class HistogramCNNModel(BaseTempnetsModel):
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -307,7 +305,8 @@ class HistogramCNNModel(BaseTempnetsModel):
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
 

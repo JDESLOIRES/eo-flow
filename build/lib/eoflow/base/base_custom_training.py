@@ -8,9 +8,9 @@ import os
 import tensorflow as tf
 
 from . import Configurable
+from eoflow.models.data_augmentation import add_random_shift, add_random_noise
 
-
-class BaseCustomModel(tf.keras.Model, Configurable):
+class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
         tf.keras.Model.__init__(self)
         Configurable.__init__(self, config_specs)
@@ -54,7 +54,6 @@ class BaseCustomModel(tf.keras.Model, Configurable):
             grads = tape.gradient(cost, self.trainable_variables)
             self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
-            self.metric.update_state(y_batch_train+1, y_preds+1)
 
     # Function to run the validation step.
     @tf.function
@@ -71,10 +70,12 @@ class BaseCustomModel(tf.keras.Model, Configurable):
             batch_size,
             num_epochs,
             model_directory,
-            iterations_per_epoch=10,
-            function=np.min):
+            save_steps=10,
+            timeshift = 0,
+            random_noise = 0,
+            function=np.max):
 
-        train_loss, val_loss, val_acc = ([np.inf] for i in range(3))
+        train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
 
         x_train, y_train = dataset
         n, t, d = x_train.shape
@@ -87,8 +88,13 @@ class BaseCustomModel(tf.keras.Model, Configurable):
 
         for epoch in range(num_epochs + 1):
 
-            x_train, y_train = shuffle(x_train, y_train)
-            train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(batch_size)
+            x_train_, y_train_ = shuffle(x_train, y_train)
+            if timeshift:
+                x_train_ = add_random_shift(x_train_, timeshift)
+            if random_noise:
+                x_train_ = add_random_noise(x_train_, random_noise)
+
+            train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
             self.train_step(train_ds)
 
@@ -97,7 +103,7 @@ class BaseCustomModel(tf.keras.Model, Configurable):
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            if epoch % iterations_per_epoch == 0:
+            if epoch % save_steps == 0:
                 self.val_step(val_ds)
                 val_loss_epoch = self.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
@@ -109,7 +115,13 @@ class BaseCustomModel(tf.keras.Model, Configurable):
                         str(round(val_acc_result, 4)),
                     ))
 
-                if val_acc_result < function(val_acc):
+                if (
+                    function is np.min
+                    and val_loss_epoch < function(val_loss)
+                    or function is np.max
+                    and val_loss_epoch > function(val_loss)
+                ):
+                    print('Best score seen so far ' + str(val_loss_epoch))
                     self.save_weights(os.path.join(model_directory, 'model'))
 
                 val_loss.append(val_loss_epoch)
@@ -137,5 +149,5 @@ class BaseCustomModel(tf.keras.Model, Configurable):
                         val_dataset,
                         num_epochs=num_epochs,
                         model_directory=model_directory,
-                        iterations_per_epoch=iterations_per_epoch,
+                        save_steps=iterations_per_epoch,
                         **kwargs)

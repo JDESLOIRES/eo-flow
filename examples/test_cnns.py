@@ -5,18 +5,24 @@ import tensorflow as tf
 import numpy as np
 import os
 import tensorflow_addons as tfa
+import matplotlib.pyplot as plt
 ########################################################################################################################
 ########################################################################################################################
-
+def reshape_array(x, T=27) :
+    x = x.reshape(x.shape[0], x.shape[1] // T, T)
+    x = np.moveaxis(x, 2, 1)
+    return x
 
 path = '/home/johann/Documents/Syngenta/2020/fold_5/'
-x_train = np.load(os.path.join(path, 'training_x_bands.npy'))
+x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
-x_train = x_train.reshape(756, 27, 10)
-x_val = np.load(os.path.join(path, 'val_x_bands.npy'))
-x_val = x_val.reshape(190, 27, 10)
+x_train = reshape_array(x_train)
+x_val = np.load(os.path.join(path, 'val_x_S2.npy'))
+x_val = reshape_array(x_val)
 y_val = np.load(os.path.join(path, 'val_y.npy'))
-
+x_test = np.load(os.path.join(path, 'test_x_S2.npy'))
+x_test = reshape_array(x_test)
+y_test = np.load(os.path.join(path, 'test_y.npy'))
 
 
 # Model configuration CNN
@@ -25,18 +31,18 @@ model_cfg_cnn = {
     "keep_prob" : 0.5,
     "nb_conv_filters": 16,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 2048,
-    "nb_fc_stacks": 1, #Nb FCN layers
+    "nb_fc_neurons" : 32,
+    "nb_fc_stacks": 2, #Nb FCN layers
     "kernel_size" : 1,
     "nb_conv_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
-    "padding": "VALID",#"VALID", CAUSAL works great?!
+    "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "final_layer" : 'Flatten',
-    "loss": "huber",
+    "loss": "mse",
     "enumerate" : True,
-    "metrics": "mape"
+    "metrics": "mse"
 }
 
 
@@ -45,19 +51,30 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 model_cnn.prepare()
 
 # Train the model
+timeshift = 4
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_val, y_val),
-    num_epochs=10,
-    iterations_per_epoch=5,
+    num_epochs=500,
+    save_steps=5,
     batch_size = 8,
-    model_directory='./'
+    function = np.min,
+    timeshift = 1,
+    model_directory='/home/johann/Documents/model_' + str(timeshift),
 )
-
-model_cnn.load_weights('./model')
-t = model_cnn.predict(x_val)
+'''
+console 0 : timeshift = 2
+consiole 2 : timeshift = 0
+console 3 :timeshift = 4
+console 4 :timeshift = 1
+'''
+model_cnn.load_weights('/home/johann/Documents/model/model')
+t = model_cnn.predict(x_test)
+from sklearn.metrics import r2_score, mean_squared_error
+mean_squared_error(y_test, t)
+r2_score(y_test, t)
 import matplotlib.pyplot as plt
-plt.scatter(t, y_val)
+plt.scatter(y_test,t)
 plt.show()
 ########################################################################################################################
 ########################################################################################################################
