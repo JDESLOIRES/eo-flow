@@ -8,7 +8,7 @@ from tensorflow.keras.layers import SimpleRNN, LSTM, GRU, Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
 
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
@@ -17,12 +17,12 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 
-class MLP(BaseTempnetsModel):
+class MLP(BaseCustomTempnetsModel):
     """
     Implementation of the mlp network
     """
 
-    class MLPSchema(BaseTempnetsModel._Schema):
+    class MLPSchema(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
@@ -38,8 +38,9 @@ class MLP(BaseTempnetsModel):
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
 
         return layer_fcn
 

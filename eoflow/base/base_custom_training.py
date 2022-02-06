@@ -16,6 +16,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         Configurable.__init__(self, config_specs)
 
         self.net = None
+        self.ema = tf.train.ExponentialMovingAverage(decay=0.9)
         self.init_model()
 
     def init_model(self):
@@ -45,7 +46,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                    train_ds,
                    noisy = False):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
-
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
                 y_preds = self.call(x_batch_train,
@@ -53,8 +53,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 cost = self.loss(y_batch_train, y_preds)
 
             grads = tape.gradient(cost, self.trainable_variables)
-            self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+            opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
+            with tf.control_dependencies([opt_op]):
+                self.ema.apply(self.trainable_variables)
 
     # Function to run the validation step.
     @tf.function
@@ -65,6 +67,17 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             self.loss_metric.update_state(cost)
             self.metric.update_state(y +1, y_preds+1)
 
+    @staticmethod
+    def _data_augmentation(x_train_, y_train_, timeshift,random_noise, noisy_label):
+        if timeshift:
+            x_train_ = add_random_shift(x_train_, timeshift)
+        if random_noise:
+            x_train_ = add_random_noise(x_train_, random_noise)
+        if noisy_label:
+            y_train_ = add_random_target(y_train_, noisy_label)
+
+        return x_train_, y_train_
+
     def fit(self,
             dataset,
             val_dataset,
@@ -74,28 +87,23 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             save_steps=10,
             timeshift = 0,
             random_noise = 0,
-            noisy_label = False,
+            noisy_label = 0,
             function=np.max):
 
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
 
         x_train, y_train = dataset
-        n, t, d = x_train.shape
+
 
         x_val, y_val = val_dataset
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
 
-        _ = self(tf.zeros([n, t, d]))
+        _ = self(tf.zeros([k for k in x_train.shape]))
 
         for epoch in range(num_epochs + 1):
 
             x_train_, y_train_ = shuffle(x_train, y_train)
-            if timeshift:
-                x_train_ = add_random_shift(x_train_, timeshift)
-            if random_noise:
-                x_train_ = add_random_noise(x_train_, random_noise)
-            if noisy_label:
-                y_train_ = add_random_target(y_train_)
+            x_train_, y_train_ = self._data_augmentation(x_train_, y_train_, timeshift,random_noise, noisy_label)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
@@ -131,6 +139,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 val_acc.append(val_acc_result)
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
+
 
         self.save_weights(os.path.join(model_directory, 'last_model'))
 

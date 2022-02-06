@@ -12,6 +12,7 @@ from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
 
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -19,13 +20,13 @@ logging.basicConfig(level=logging.INFO,
 rnn_layers = dict(rnn=SimpleRNN, gru=GRU, lstm=LSTM)
 
 
-class BiRNN(BaseTempnetsModel):
+class BiRNN(BaseCustomTempnetsModel):
     """ Implementation of a Bidirectional Recurrent Neural Network
 
     This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
     """
 
-    class BiRNNModelSchema(BaseTempnetsModel._Schema):
+    class BiRNNModelSchema(BaseCustomTempnetsModel._Schema):
         rnn_layer = fields.String(required=True, validate=OneOf(['rnn', 'lstm', 'gru']),
                                   description='Type of RNN layer to use')
 
@@ -111,14 +112,14 @@ class BiRNN(BaseTempnetsModel):
 #https://www.sciencedirect.com/science/article/pii/S0034425721003205
 
 
-class ConvLSTM(BaseTempnetsModel):
+class ConvLSTM(BaseCustomTempnetsModel):
     """ Implementation of a Bidirectional Recurrent Neural Network
 
     This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
     """
 
 
-    class ConvLSTMShema(BaseTempnetsModel._Schema):
+    class ConvLSTMShema(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')

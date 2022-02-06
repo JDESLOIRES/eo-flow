@@ -16,7 +16,7 @@ def reshape_array(x, T=27) :
     x = np.moveaxis(x, 2, 1)
     return x
 
-path = '/home/johann/Documents/Syngenta/2021/fold_5/'
+path = '/home/johann/Documents/Syngenta/2020/fold_5/'
 x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_train = reshape_array(x_train)
@@ -27,20 +27,23 @@ x_test = np.load(os.path.join(path, 'test_x_S2.npy'))
 x_test = reshape_array(x_test)
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
+x_train = np.concatenate([x_train, x_val], axis = 0)
+y_train = np.concatenate([y_train, y_val], axis = 0)
 
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
-    "keep_prob" : 0.8,
-    "nb_conv_filters": 16,
+    "keep_prob" : 0.6,
+    "nb_conv_filters": 64,
     "nb_conv_stacks": 3,  # Nb Conv layers
     "nb_fc_neurons" : 32,
     "nb_fc_stacks": 2, #Nb FCN layers
+    "fc_activation" : 'relu',
     "kernel_size" : 1,
     "nb_conv_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
-    "padding": "CAUSAL",#"VALID", CAUSAL works great?!
+    "padding": "SAME",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "final_layer" : 'GlobalAveragePooling1D',
     "loss": "mse",
@@ -53,16 +56,18 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
+#EMA 0.99
 # Train the model
-timeshift = 3
+timeshift = 4
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_val, y_val),
+    val_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    timeshift = 3,
+    timeshift = timeshift,
+    noisy_label =0.15,
     model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
 )
 
@@ -78,11 +83,12 @@ console 4 :timeshift = 1
 #NOTE : modèle KR avec timeshit 3 + NL + RN : 0.08 last model good mais -0,32 sinon ..
 #Just timeshift 4 pas bon, timeshift 2 0.065
 timeshift =1
-model_cnn.load_weights('/home/johann/Documents/model_KR_NL_3' + '/model')
+model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str(timeshift) + '/best_model')
 t = model_cnn.predict(x_test)
 from sklearn.metrics import r2_score, mean_squared_error
 mean_squared_error(y_test, t)
 r2_score(y_test, t)
+
 import matplotlib.pyplot as plt
 plt.scatter(y_test,t)
 plt.show()
