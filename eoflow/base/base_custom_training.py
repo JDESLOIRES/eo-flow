@@ -8,7 +8,9 @@ import os
 import tensorflow as tf
 
 from . import Configurable
-from eoflow.models.data_augmentation import add_random_shift, add_random_noise, add_random_target
+from eoflow.base.base_callbacks import CustomReduceLRoP
+from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
+
 
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
@@ -16,7 +18,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         Configurable.__init__(self, config_specs)
 
         self.net = None
-        self.ema = tf.train.ExponentialMovingAverage(decay=0.9)
+        self.ema = tf.train.ExponentialMovingAverage(decay=0.8)
+
         self.init_model()
 
     def init_model(self):
@@ -30,9 +33,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def call(self, inputs, training=False):
         pass
 
-    def prepare(self, optimizer=None, loss=None, metrics=None,
-                epoch_loss_metric = None,
-                epoch_val_metric = None,
+    def prepare(self,
+                optimizer=None, loss=None, metrics=None,
+                epoch_loss_metric=None,
+                epoch_val_metric=None,
+                reduce_lr=False,
                 **kwargs):
         """ Prepares the self for training and evaluation. This method should create the
         optimizer, loss and metric functions and call the compile method of the self. The self
@@ -43,8 +48,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def train_step(self,
-                   train_ds,
-                   noisy = False):
+                   train_ds):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
@@ -65,45 +69,97 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             y_preds = self.call(x, training=False)
             cost = self.loss(y, y_preds)
             self.loss_metric.update_state(cost)
-            self.metric.update_state(y +1, y_preds+1)
+            self.metric.update_state(y + 1, y_preds + 1)
 
     @staticmethod
-    def _data_augmentation(x_train_, y_train_, timeshift,random_noise, noisy_label):
-        if timeshift:
-            x_train_ = add_random_shift(x_train_, timeshift)
-        if random_noise:
-            x_train_ = add_random_noise(x_train_, random_noise)
-        if noisy_label:
-            y_train_ = add_random_target(y_train_, noisy_label)
-
+    def _data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label):
+        if shift_step:
+            x_train_ = timeshift(x_train_, shift_step)
+        if feat_noise:
+            x_train_, _ = feature_noise(x_train_, feat_noise)
+        if sdev_label:
+            y_train_ = noisy_label(y_train_, sdev_label)
         return x_train_, y_train_
 
+    def _reduce_lr_on_plateau(self, patience=30,
+                              factor=0.1,
+                              reduce_lin=False):
+
+        return CustomReduceLRoP(patience=patience,
+                                factor=factor,
+                                verbose=1,
+                                optim_lr=self.optimizer.learning_rate,
+                                reduce_lin=reduce_lin)
+
+    def _pretraining(self, x_train, x_test, model_directory, batch_size=8, num_epochs=500):
+        train_loss = []
+        x_all = np.concatenate([x_train, x_test], axis = 0)
+        for _ in range(num_epochs):
+            x_all = shuffle(x_all)
+            x_train_ = timeshift(x_train_, 3)
+            ts_masking, mask = feature_noise(x_all, value=0.5, proba=0.15)
+            train_ds = tf.data.Dataset.from_tensor_slices((ts_masking, mask))
+            train_ds = train_ds.batch(batch_size)
+            self.train_step(train_ds)
+            loss_epoch = self.loss_metric.result().numpy()
+            train_loss.append(loss_epoch)
+            self.loss_metric.reset_states()
+
+        self.save_weights(os.path.join(model_directory, 'pretrained_model'))
+
+    def _init_weights_pretrained(self, model_directory, n_freeze =3):
+        '''
+        :param classifier: RNN to init the weights
+        :param batch_size: batch size to init de model before loading weights
+        :return: input classifier with weights pretrained
+        '''
+
+        self.load_weights(os.path.join(model_directory, 'pretrained_model'))
+
+        #Freeze the first n layers
+        for i in range(len(self.layers) - 1):
+            self.layers[i].set_weights(self.pretrained_model.layers[i].get_weights())
+            if i<n_freeze:
+                self.layer.trainable = False
+
     def fit(self,
-            dataset,
+            train_dataset,
             val_dataset,
+            test_dataset,
             batch_size,
             num_epochs,
             model_directory,
             save_steps=10,
-            timeshift = 0,
-            random_noise = 0,
-            noisy_label = 0,
-            function=np.max):
+            shift_step=0,
+            feat_noise=0,
+            sdev_label=0,
+            function=np.min,
+            reduce_lr = False,
+            pretraining = False,
+            patience = 50):  # sourcery skip: identity-comprehension
 
+        global val_acc_result
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
 
-        x_train, y_train = dataset
-
-
+        x_train, y_train = train_dataset
         x_val, y_val = val_dataset
+        x_test, y_test = test_dataset
+
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
 
         _ = self(tf.zeros([k for k in x_train.shape]))
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience*2)
+        wait = 0
+
+        if pretraining:
+            self._pretraining(x_train, x_test, model_directory, batch_size=8, num_epochs=100)
+            self._load_pretrained(model_directory)
 
         for epoch in range(num_epochs + 1):
 
             x_train_, y_train_ = shuffle(x_train, y_train)
-            x_train_, y_train_ = self._data_augmentation(x_train_, y_train_, timeshift,random_noise, noisy_label)
+            x_train_, y_train_ = self._data_augmentation(x_train_, y_train_,
+                                                         shift_step, feat_noise, sdev_label)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
@@ -120,18 +176,18 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 val_acc_result = self.metric.result().numpy()
                 print(
                     "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}".format(
-                        str(epoch),
-                        str(loss_epoch),
-                        str(round(val_loss_epoch, 4)),
-                        str(round(val_acc_result, 4)),
+                        str(epoch), str(loss_epoch), str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
                     ))
 
+                wait += 1
+
                 if (
-                    function is np.min
-                    and val_loss_epoch < function(val_loss)
-                    or function is np.max
-                    and val_loss_epoch > function(val_loss)
+                        function is np.min
+                        and val_loss_epoch < function(val_loss)
+                        or function is np.max
+                        and val_loss_epoch > function(val_loss)
                 ):
+                    wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.save_weights(os.path.join(model_directory, 'best_model'))
 
@@ -140,6 +196,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
+                if wait >= patience: break
+
+            if reduce_lr:
+                reduce_rl_plateau.on_epoch_end(epoch, val_acc_result)
 
         self.save_weights(os.path.join(model_directory, 'last_model'))
 
@@ -165,3 +225,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                         model_directory=model_directory,
                         save_steps=iterations_per_epoch,
                         **kwargs)
+
+for i in range(5):
+    if i == 3:
+        break
+print('hello')
+

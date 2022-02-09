@@ -33,22 +33,22 @@ y_train = np.concatenate([y_train, y_val], axis = 0)
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
-    "keep_prob" : 0.6,
+    "keep_prob" : 0.5,
     "nb_conv_filters": 64,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 32,
-    "nb_fc_stacks": 2, #Nb FCN layers
+    "nb_fc_neurons" : 256,
+    "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 1,
     "nb_conv_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
-    "padding": "SAME",#"VALID", CAUSAL works great?!
+    "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "final_layer" : 'GlobalAveragePooling1D',
-    "loss": "mse",
+    "loss": "huber",
     "enumerate" : True,
-    "metrics": "mse"
+    "metrics": "mae"
 }
 
 
@@ -61,15 +61,20 @@ model_cnn.prepare()
 timeshift = 4
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
+    val_dataset=(x_val, y_val),
     num_epochs=500,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    timeshift = timeshift,
-    noisy_label =0.15,
+    shift_step = timeshift,
+    sdev_label =0.15,
+    feat_noise = 0.2,
+    reduce_lr = False,
     model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
 )
+
+#200 epochs enough? or dropout 0.5?
+#enumerate start with 64, globalaveragepooling, one dense and zou
 
 '''
 console 0 : timeshift = 2
@@ -85,12 +90,15 @@ console 4 :timeshift = 1
 timeshift =1
 model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str(timeshift) + '/best_model')
 t = model_cnn.predict(x_test)
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 mean_squared_error(y_test, t)
 r2_score(y_test, t)
+mean_absolute_error(y_test, t)
 
 import matplotlib.pyplot as plt
-plt.scatter(y_test,t)
+plt.scatter(y_test,t, vmin = 0, vmax = 1)
+plt.xlim((-0.1,1.1))
+plt.ylim((-0.1,1.1))
 plt.show()
 ########################################################################################################################
 ########################################################################################################################

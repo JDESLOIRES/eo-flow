@@ -10,7 +10,7 @@ import tensorflow as tensorflow
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss
 from eoflow.models.metrics import InitializableMetric, RSquared
-from eoflow.models.data_augmentation import add_random_noise, add_random_shift
+
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -35,7 +35,6 @@ dictionary_metrics = {
     'recall': tf.keras.metrics.Recall,
     'r_square' : RSquared
 }
-
 
 
 class BaseTempnetsModel(BaseModelTraining):
@@ -130,6 +129,7 @@ class BaseCustomTempnetsModel(BaseModelCustomTraining):
 
     def prepare(self, optimizer=None, loss=None, metrics=None,
                 loss_metric = tf.keras.metrics.Mean(),
+                reduce_lr = False,
                 **kwargs):
         """ Prepares the model. Optimizer, loss and metrics are read using the following protocol:
         * If an argument is None, the default value is used from the configuration of the model.
