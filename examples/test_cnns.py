@@ -62,6 +62,7 @@ timeshift = 4
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_val, y_val),
+    test_dataset = (x_test, y_test),
     num_epochs=500,
     save_steps=5,
     batch_size = 8,
@@ -70,6 +71,7 @@ model_cnn.train_and_evaluate(
     sdev_label =0.15,
     feat_noise = 0.2,
     reduce_lr = False,
+    pretraining = True,
     model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
 )
 

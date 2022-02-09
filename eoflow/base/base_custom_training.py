@@ -91,17 +91,21 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 optim_lr=self.optimizer.learning_rate,
                                 reduce_lin=reduce_lin)
 
-    def _pretraining(self, x_train, x_test, model_directory, batch_size=8, num_epochs=500):
+    def _pretraining(self, x_train, x_test, model_directory, batch_size=8, num_epochs=100):
         train_loss = []
         x_all = np.concatenate([x_train, x_test], axis = 0)
-        for _ in range(num_epochs):
+        for epoch in range(num_epochs):
             x_all = shuffle(x_all)
-            x_train_ = timeshift(x_train_, 3)
-            ts_masking, mask = feature_noise(x_all, value=0.5, proba=0.15)
+            x_all_ = timeshift(x_all, 3)
+            ts_masking, mask = feature_noise(x_all_, value=0.5, proba=0.15)
             train_ds = tf.data.Dataset.from_tensor_slices((ts_masking, mask))
             train_ds = train_ds.batch(batch_size)
             self.train_step(train_ds)
             loss_epoch = self.loss_metric.result().numpy()
+
+            if epoch%5==0:
+                print("Epoch {0}: Train loss {1}".format(str(epoch), str(loss_epoch)))
+
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
@@ -118,14 +122,13 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         #Freeze the first n layers
         for i in range(len(self.layers) - 1):
-            self.layers[i].set_weights(self.pretrained_model.layers[i].get_weights())
-            if i<n_freeze:
-                self.layer.trainable = False
+            self.layers[i].set_weights(self.layers[i].get_weights())
+            if i<=n_freeze:
+                self.layers[i].trainable = False
 
     def fit(self,
             train_dataset,
             val_dataset,
-            test_dataset,
             batch_size,
             num_epochs,
             model_directory,
@@ -136,6 +139,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             function=np.min,
             reduce_lr = False,
             pretraining = False,
+            test_dataset = None,
             patience = 50):  # sourcery skip: identity-comprehension
 
         global val_acc_result
@@ -143,7 +147,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         x_train, y_train = train_dataset
         x_val, y_val = val_dataset
-        x_test, y_test = test_dataset
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
 
@@ -152,8 +155,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         wait = 0
 
         if pretraining:
-            self._pretraining(x_train, x_test, model_directory, batch_size=8, num_epochs=100)
-            self._load_pretrained(model_directory)
+            x_test, y_test = test_dataset
+            self._pretraining(x_train, x_test, model_directory, batch_size=8, num_epochs=num_epochs//5)
+            self._init_weights_pretrained(model_directory)
 
         for epoch in range(num_epochs + 1):
 
@@ -225,9 +229,4 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                         model_directory=model_directory,
                         save_steps=iterations_per_epoch,
                         **kwargs)
-
-for i in range(5):
-    if i == 3:
-        break
-print('hello')
 
