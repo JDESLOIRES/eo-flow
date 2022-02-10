@@ -75,7 +75,7 @@ model_cnn.prepare()
 ts = 5
 model_cnn.pretraining(x_train,
                       model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
-                      num_epochs=1)
+                      num_epochs=20)
 
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),

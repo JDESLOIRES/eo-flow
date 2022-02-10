@@ -95,7 +95,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 reduce_lin=reduce_lin)
 
 
-    def pretraining(self,  x, model_directory, batch_size=8, num_epochs=100):
+    def pretraining(self,  x, model_directory, timeshift = 3, batch_size=8, num_epochs=100):
 
         _ = self(tf.zeros([k for k in x.shape]))
         top_model = self.layers[-2].output
@@ -107,7 +107,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         for epoch in range(num_epochs):
             x = shuffle(x)
-            x, _ = timeshift(x, 3)
+            x, _ = timeshift(x, timeshift)
             ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
             epsilon = x - ts_masking
 
@@ -120,9 +120,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
                 with tf.GradientTape() as tape:
                     x_preds = model.call(ts_masking_batch,
-                                         training=True) #* mask_batch
-                    #x_preds = x_preds.numpy() * mask_batch.numpy()
-                    cost = self.loss(epsilon_batch,x_preds)
+                                         training=True)
+                    x_preds = tf.math.multiply(x_preds, mask_batch)
+                    cost = self.loss(epsilon_batch, x_preds)
                     cost = tf.reduce_mean(cost)
 
                 grads = tape.gradient(cost, model.trainable_variables)
