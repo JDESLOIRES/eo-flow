@@ -6,17 +6,17 @@ import numpy as np
 import os
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
-
+from eoflow.models.data_augmentation import feature_noise, timeshift, noisy_label
 
 
 ########################################################################################################################
 ########################################################################################################################
-def reshape_array(x, T=27) :
+def reshape_array(x, T=30) :
     x = x.reshape(x.shape[0], x.shape[1] // T, T)
     x = np.moveaxis(x, 2, 1)
     return x
 
-path = '/home/johann/Documents/Syngenta/2020/fold_5/'
+path = '/home/johann/Documents/Syngenta/2021/fold_4/'
 x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_train = reshape_array(x_train)
@@ -27,18 +27,31 @@ x_test = np.load(os.path.join(path, 'test_x_S2.npy'))
 x_test = reshape_array(x_test)
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
-x_train = np.concatenate([x_train, x_val], axis = 0)
-y_train = np.concatenate([y_train, y_val], axis = 0)
 
+#x_train = np.concatenate([x_train, x_val], axis = 0)
+#y_train = np.concatenate([y_train, y_val], axis = 0)
+
+plt.plot(x_train[0,:,10])
+plt.show()
+x_sh,mask = feature_noise(x_train, value=0.2, proba=0.15)
+
+
+
+
+x_sh,_ = timeshift(x_sh, value=5, proba=0.5)
+plt.plot(x_train[0,:,10])
+plt.plot(x_sh[0,:,10])
+plt.show()
+from sklearn.utils import resample
 
 
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
     "keep_prob" : 0.5,
-    "nb_conv_filters": 64,
+    "nb_conv_filters": 32,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 256,
+    "nb_fc_neurons" : 128,
     "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 1,
@@ -48,9 +61,9 @@ model_cfg_cnn = {
     "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "huber", #huber was working great for 2020 and 2021
+    "loss": "mse", #huber was working great for 2020 and 2021
     "enumerate" : True,
-    "metrics": "mse"
+    "metrics": "mape"
 }
 
 
@@ -58,25 +71,27 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
-#model_cnn.layers[-1] = tf.keras.layers.Dense(())
-#EMA 0.99
-# Train the model
-timeshift = 4
+
+ts = 5
+model_cnn.pretraining(x_train,
+                      model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
+                      num_epochs=1)
+
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
-    test_dataset = (x_test, y_test),
     num_epochs=500,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    shift_step = timeshift,
-    sdev_label =0.15,
-    feat_noise = 0.2,
-    reduce_lr = False,
-    pretraining = False,
-    model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
+    shift_step = 3,
+    sdev_label =0.1,
+    feat_noise = 0.3,
+    reduce_lr = True,
+    pretraining = True,
+    model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
 )
+
 
 #200 epochs enough? or dropout 0.5?
 #enumerate start with 64, globalaveragepooling, one dense and zou
@@ -92,9 +107,10 @@ console 4 :timeshift = 1
 #NOTE : modèle KR avec timeshit 3 + NL : -0.09 last model good mais -0,32 sinon ..
 #NOTE : modèle KR avec timeshit 3 + NL + RN : 0.08 last model good mais -0,32 sinon ..
 #Just timeshift 4 pas bon, timeshift 2 0.065
-timeshift =1
-model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str(timeshift) + '/best_model')
+timeshift =5
+model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str('pretr') + '/best_model')
 t = model_cnn.predict(x_test)
+t[:,1]
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 mean_squared_error(y_test, t)
 r2_score(y_test, t)
@@ -102,7 +118,8 @@ mean_absolute_error(y_test, t)
 
 import matplotlib.pyplot as plt
 plt.scatter(y_test,t, vmin = 0, vmax = 1)
-
+plt.xlim((-0.1,1.1))
+plt.ylim((0.1,0.9))
 plt.show()
 
 ########################################################################################################################

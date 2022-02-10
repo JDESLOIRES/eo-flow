@@ -1,7 +1,7 @@
 import numpy as np
 import random
 
-def timeshift(x_, value = 4, proba = 0.75):
+def timeshift(x_, value = 4, proba = 0.5):
     x = x_.copy()
 
     def _shift(x, rand_unif):
@@ -28,26 +28,27 @@ def timeshift(x_, value = 4, proba = 0.75):
 
 
 
-
-def feature_noise(x_batch, value = 0.2, proba = 0.25):
+def feature_noise(x_batch, value = 0.2, proba = 0.15):
 
     ts_masking = x_batch.copy()
     mask = np.zeros((ts_masking.shape[0], ts_masking.shape[1],), dtype=float)
 
-    for i in range(x_batch.shape[0]):
-        for j in range(x_batch.shape[1]):
+    for i in range(ts_masking.shape[0]):
+        for j in range(ts_masking.shape[1]):
             prob = random.random()
             if prob < proba:
                 prob /= proba
                 mask[i, j] = 1.0
                 if prob < 0.5:
-                    x_batch[i, j, :] += np.random.uniform(low=-value, high=0, size=(x_batch.shape[2]))
+                    ts_masking[i, j, :] += np.random.uniform(low=-value, high=0, size=(x_batch.shape[2]))
                 else:
-                    x_batch[i, j, :] += np.random.uniform(low=0, high=value, size=(x_batch.shape[2]))
-    return x_batch, mask
+                    ts_masking[i, j, :] += np.random.uniform(low=0, high=value, size=(x_batch.shape[2]))
+
+    return ts_masking, mask
 
 
-def noisy_label(y, stdev =0.2, proba = 0.5):
+def noisy_label(y_, stdev =0.1, proba = 0.25):
+    y = y_.copy()
     y = y.reshape(y.shape[0], 1)
 
     for i in range(y.shape[0]):

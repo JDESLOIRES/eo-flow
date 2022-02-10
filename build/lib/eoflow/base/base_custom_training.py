@@ -1,8 +1,9 @@
+import copy
+
 import tensorflow as tf
 from sklearn.utils import shuffle
 import numpy as np
 import pickle
-
 import os
 
 import tensorflow as tf
@@ -10,7 +11,8 @@ import tensorflow as tf
 from . import Configurable
 from eoflow.base.base_callbacks import CustomReduceLRoP
 from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
-
+from keras.models import Sequential
+from keras.layers import Dense
 
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
@@ -48,19 +50,15 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def train_step(self,
-                   train_ds,
-                   mask = None):
+                   train_ds):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
                 y_preds = self.call(x_batch_train,
                                     training=True)
-                print(y_preds)
 
                 cost = self.loss(y_batch_train, y_preds)
-                if mask: cost *= mask
 
-            print(y_preds)
             grads = tape.gradient(cost, self.trainable_variables)
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
@@ -96,34 +94,57 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 optim_lr=self.optimizer.learning_rate,
                                 reduce_lin=reduce_lin)
 
-    def _pretraining(self, x_train, x_test, model_directory, batch_size=8, num_epochs=100):
-        train_loss = []
-        x_all = np.concatenate([x_train, x_test], axis = 0)
+
+    def pretraining(self,  x, model_directory, batch_size=8, num_epochs=100):
+
+        _ = self(tf.zeros([k for k in x.shape]))
+        top_model = self.layers[-2].output
+        output_layer = tf.keras.layers.Dense(x.shape[1],
+                                             activation='linear')(top_model)
+
+        model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer)
+        print(model.summary())
+
         for epoch in range(num_epochs):
-            x_all = shuffle(x_all)
-            x_all_ = timeshift(x_all, 3)
-            ts_masking, mask = feature_noise(x_all_, value=0.5, proba=0.15)
-            print(mask.shape)
-            train_ds = tf.data.Dataset.from_tensor_slices((ts_masking, mask))
+            x = shuffle(x)
+            x, _ = timeshift(x, 3)
+            ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
+            epsilon = x - ts_masking
+
+            train_ds = tf.data.Dataset.from_tensor_slices((epsilon[...,0],
+                                                           ts_masking,
+                                                           mask))
             train_ds = train_ds.batch(batch_size)
-            self.train_step(train_ds,mask)
-            loss_epoch = self.loss_metric.result().numpy()
+
+            for epsilon_batch, ts_masking_batch, mask_batch in train_ds:  # tqdm
+
+                with tf.GradientTape() as tape:
+                    x_preds = model.call(ts_masking_batch,
+                                         training=True) #* mask_batch
+                    #x_preds = x_preds.numpy() * mask_batch.numpy()
+                    cost = self.loss(epsilon_batch,x_preds)
+                    cost = tf.reduce_mean(cost)
+
+                grads = tape.gradient(cost, model.trainable_variables)
+                self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
+                self.loss_metric.update_state(cost)
 
             if epoch%5==0:
-                print("Epoch {0}: Train loss {1}".format(str(epoch), str(loss_epoch)))
+                print("Epoch {0}: Train loss {1}".format(str(epoch), str(cost)))
 
-            train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
+
+        for i in range(len(self.layers)-2):
+            self.layers[i].set_weights(model.layers[i].get_weights())
 
         self.save_weights(os.path.join(model_directory, 'pretrained_model'))
 
-    def _init_weights_pretrained(self, model_directory, n_freeze =3):
 
+    def _init_weights_pretrained(self, model_directory, n_freeze =3):
 
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
 
-        #Freeze the first n layers
-        for i in range(len(self.layers) - 1):
+        for i in range(len(self.layers) - 2):
             self.layers[i].set_weights(self.layers[i].get_weights())
             if i<=n_freeze:
                 self.layers[i].trainable = False
@@ -145,7 +166,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             function=np.min,
             reduce_lr = False,
             pretraining = False,
-            test_dataset = None,
             patience = 50):  # sourcery no-metrics skip: identity-comprehension
 
         global val_acc_result
@@ -156,14 +176,13 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
 
-        _ = self(tf.zeros([k for k in x_train.shape]))
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience*2)
         wait = 0
 
+        _ = self(tf.zeros([k for k in x_train.shape]))
+        print(self.summary())
+
         if pretraining:
-            x_test, y_test = test_dataset
-            self._pretraining(x_train, x_test, model_directory,
-                              batch_size=batch_size, num_epochs=num_epochs//5)
             self._init_weights_pretrained(model_directory)
             for var in self.optimizer.variables():
                 var.assign(tf.zeros_like(var))
