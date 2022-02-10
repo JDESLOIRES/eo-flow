@@ -131,12 +131,16 @@ class TempCNNModel(BaseCustomTempnetsModel):
         nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
-                                    description='Final layer after the convolutions.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
+
+        emb_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+                                  description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
+        n_classes = fields.Int(missing=1, description='Number of classes')
+        output_activation = fields.String(missing='linear', description='Output activation')
+
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -170,11 +174,11 @@ class TempCNNModel(BaseCustomTempnetsModel):
     def _embeddings(self,net):
 
         name = "embedding"
-        if self.config.final_layer == 'Flatten':
+        if self.config.emb_layer == 'Flatten':
             net = tf.keras.layers.Flatten(name=name)(net)
-        elif self.config.final_layer == 'GlobalAveragePooling1D':
+        elif self.config.emb_layer == 'GlobalAveragePooling1D':
             net = tf.keras.layers.GlobalAveragePooling1D(name=name)(net)
-        elif self.config.final_layer == 'GlobalMaxPooling1D':
+        elif self.config.emb_layer == 'GlobalMaxPooling1D':
             net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
 
         return net
@@ -212,8 +216,8 @@ class TempCNNModel(BaseCustomTempnetsModel):
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(net)
 
-        net = Dense(units = 1,
-                    activation = 'linear',
+        net = Dense(units = self.config.n_classes,
+                    activation = self.config.output_activation,
                     kernel_initializer=self.config.kernel_initializer,
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
@@ -287,11 +291,11 @@ class HistogramCNNModel(BaseTempnetsModel):
     def _embeddings(self,net):
 
         name = "embedding"
-        if self.config.final_layer == 'Flatten':
+        if self.config.emb_layer == 'Flatten':
             net = tf.keras.layers.Flatten(name=name)(net)
-        elif self.config.final_layer == 'GlobalAveragePooling2D':
+        elif self.config.emb_layer == 'GlobalAveragePooling2D':
             net = tf.keras.layers.GlobalAveragePooling2D(name=name)(net)
-        elif self.config.final_layer == 'GlobalMaxPooling2D':
+        elif self.config.emb_layer == 'GlobalMaxPooling2D':
             net = tf.keras.layers.GlobalMaxPooling2D(name=name)(net)
 
         return net

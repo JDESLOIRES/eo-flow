@@ -48,14 +48,19 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def train_step(self,
-                   train_ds):
+                   train_ds,
+                   mask = None):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
                 y_preds = self.call(x_batch_train,
                                     training=True)
-                cost = self.loss(y_batch_train, y_preds)
+                print(y_preds)
 
+                cost = self.loss(y_batch_train, y_preds)
+                if mask: cost *= mask
+
+            print(y_preds)
             grads = tape.gradient(cost, self.trainable_variables)
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
@@ -74,7 +79,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     @staticmethod
     def _data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label):
         if shift_step:
-            x_train_ = timeshift(x_train_, shift_step)
+            x_train_, _ = timeshift(x_train_, shift_step)
         if feat_noise:
             x_train_, _ = feature_noise(x_train_, feat_noise)
         if sdev_label:
@@ -98,9 +103,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             x_all = shuffle(x_all)
             x_all_ = timeshift(x_all, 3)
             ts_masking, mask = feature_noise(x_all_, value=0.5, proba=0.15)
+            print(mask.shape)
             train_ds = tf.data.Dataset.from_tensor_slices((ts_masking, mask))
             train_ds = train_ds.batch(batch_size)
-            self.train_step(train_ds)
+            self.train_step(train_ds,mask)
             loss_epoch = self.loss_metric.result().numpy()
 
             if epoch%5==0:
@@ -112,11 +118,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         self.save_weights(os.path.join(model_directory, 'pretrained_model'))
 
     def _init_weights_pretrained(self, model_directory, n_freeze =3):
-        '''
-        :param classifier: RNN to init the weights
-        :param batch_size: batch size to init de model before loading weights
-        :return: input classifier with weights pretrained
-        '''
+
 
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
 
@@ -125,6 +127,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             self.layers[i].set_weights(self.layers[i].get_weights())
             if i<=n_freeze:
                 self.layers[i].trainable = False
+
+    def _set_trainable(self):
+        for i in range(len(self.layers) - 1):
+            self.layers[i].trainable = True
 
     def fit(self,
             train_dataset,
@@ -140,7 +146,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             reduce_lr = False,
             pretraining = False,
             test_dataset = None,
-            patience = 50):  # sourcery skip: identity-comprehension
+            patience = 50):  # sourcery no-metrics skip: identity-comprehension
 
         global val_acc_result
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
@@ -156,8 +162,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         if pretraining:
             x_test, y_test = test_dataset
-            self._pretraining(x_train, x_test, model_directory, batch_size=8, num_epochs=num_epochs//5)
+            self._pretraining(x_train, x_test, model_directory,
+                              batch_size=batch_size, num_epochs=num_epochs//5)
             self._init_weights_pretrained(model_directory)
+            for var in self.optimizer.variables():
+                var.assign(tf.zeros_like(var))
 
         for epoch in range(num_epochs + 1):
 
@@ -173,6 +182,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             loss_epoch = self.loss_metric.result().numpy()
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
+            if epoch == patience:
+                self._set_trainable()
 
             if epoch % save_steps == 0:
                 self.val_step(val_ds)

@@ -30,6 +30,8 @@ y_test = np.load(os.path.join(path, 'test_y.npy'))
 x_train = np.concatenate([x_train, x_val], axis = 0)
 y_train = np.concatenate([y_train, y_val], axis = 0)
 
+
+
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
@@ -45,10 +47,10 @@ model_cfg_cnn = {
     "batch_norm": True,
     "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
-    "final_layer" : 'GlobalAveragePooling1D',
-    "loss": "huber",
+    "emb_layer" : 'GlobalAveragePooling1D',
+    "loss": "huber", #huber was working great for 2020 and 2021
     "enumerate" : True,
-    "metrics": "mae"
+    "metrics": "mse"
 }
 
 
@@ -56,12 +58,13 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
+#model_cnn.layers[-1] = tf.keras.layers.Dense(())
 #EMA 0.99
 # Train the model
 timeshift = 4
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_val, y_val),
+    val_dataset=(x_test, y_test),
     test_dataset = (x_test, y_test),
     num_epochs=500,
     save_steps=5,
@@ -71,7 +74,7 @@ model_cnn.train_and_evaluate(
     sdev_label =0.15,
     feat_noise = 0.2,
     reduce_lr = False,
-    pretraining = True,
+    pretraining = False,
     model_directory='/home/johann/Documents/model_KR_MSE_' + str(timeshift),
 )
 
@@ -99,9 +102,9 @@ mean_absolute_error(y_test, t)
 
 import matplotlib.pyplot as plt
 plt.scatter(y_test,t, vmin = 0, vmax = 1)
-plt.xlim((-0.1,1.1))
-plt.ylim((-0.1,1.1))
+
 plt.show()
+
 ########################################################################################################################
 ########################################################################################################################
 
