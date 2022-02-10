@@ -7,7 +7,8 @@ import os
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
 from eoflow.models.data_augmentation import feature_noise, timeshift, noisy_label
-
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+import matplotlib.pyplot as plt
 
 ########################################################################################################################
 ########################################################################################################################
@@ -72,7 +73,7 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 model_cnn.prepare()
 
 
-ts = 5
+ts = 4
 model_cnn.pretraining(x_train,
                       model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
                       num_epochs=20)
@@ -92,35 +93,15 @@ model_cnn.train_and_evaluate(
     model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
 )
 
-
-#200 epochs enough? or dropout 0.5?
-#enumerate start with 64, globalaveragepooling, one dense and zou
-
-'''
-console 0 : timeshift = 2
-consiole 2 : timeshift = 0
-console 3 :timeshift = 4
-console 4 :timeshift = 1
-'''
-#NOTE : modèle KR avec sans timeshit : 0.11 last model good mais -0,12 sinon ..
-#NOTE : modèle KR avec timeshit 3 : 0.15 last model good mais -0,22 sinon .. monté jusqu'a 0.25 :0
-#NOTE : modèle KR avec timeshit 3 + NL : -0.09 last model good mais -0,32 sinon ..
-#NOTE : modèle KR avec timeshit 3 + NL + RN : 0.08 last model good mais -0,32 sinon ..
-#Just timeshift 4 pas bon, timeshift 2 0.065
-timeshift =5
-model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str('pretr') + '/best_model')
+model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str(ts) + '/best_model')
 t = model_cnn.predict(x_test)
-t[:,1]
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+
+
+y_test = 100*y_test + 50
+t = 100*t + 50
 mean_squared_error(y_test, t)
 r2_score(y_test, t)
-mean_absolute_error(y_test, t)
 
-import matplotlib.pyplot as plt
-plt.scatter(y_test,t, vmin = 0, vmax = 1)
-plt.xlim((-0.1,1.1))
-plt.ylim((0.1,0.9))
-plt.show()
 
 ########################################################################################################################
 ########################################################################################################################

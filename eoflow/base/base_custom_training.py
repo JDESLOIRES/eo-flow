@@ -11,8 +11,7 @@ import tensorflow as tf
 from . import Configurable
 from eoflow.base.base_callbacks import CustomReduceLRoP
 from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
-from keras.models import Sequential
-from keras.layers import Dense
+
 
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
@@ -95,7 +94,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 reduce_lin=reduce_lin)
 
 
-    def pretraining(self,  x, model_directory, timeshift = 3, batch_size=8, num_epochs=100):
+    def pretraining(self,  x, model_directory, shift = 3, batch_size=8, num_epochs=100):
 
         _ = self(tf.zeros([k for k in x.shape]))
         top_model = self.layers[-2].output
@@ -107,7 +106,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         for epoch in range(num_epochs):
             x = shuffle(x)
-            x, _ = timeshift(x, timeshift)
+            x, _ = timeshift(x, shift)
             ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
             epsilon = x - ts_masking
 
@@ -121,7 +120,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 with tf.GradientTape() as tape:
                     x_preds = model.call(ts_masking_batch,
                                          training=True)
-                    x_preds = tf.math.multiply(x_preds, mask_batch)
+                    x_preds *= mask_batch
+
                     cost = self.loss(epsilon_batch, x_preds)
                     cost = tf.reduce_mean(cost)
 
@@ -163,10 +163,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             shift_step=0,
             feat_noise=0,
             sdev_label=0,
-            function=np.min,
             reduce_lr = False,
             pretraining = False,
-            patience = 50):  # sourcery no-metrics skip: identity-comprehension
+            patience = 50,
+            function=np.min):
 
         global val_acc_result
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))

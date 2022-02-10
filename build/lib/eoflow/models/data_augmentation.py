@@ -31,7 +31,7 @@ def timeshift(x_, value = 4, proba = 0.5):
 def feature_noise(x_batch, value = 0.2, proba = 0.15):
 
     ts_masking = x_batch.copy()
-    mask = np.zeros((ts_masking.shape[0], ts_masking.shape[1],), dtype=float)
+    mask = np.zeros((ts_masking.shape[0], ts_masking.shape[1],), dtype='float32')
 
     for i in range(ts_masking.shape[0]):
         for j in range(ts_masking.shape[1]):
