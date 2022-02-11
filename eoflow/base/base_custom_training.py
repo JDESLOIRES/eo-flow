@@ -135,8 +135,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
             self.loss_metric.reset_states()
 
-        for i in range((n_layers-n_outputs) + 1):
-            self.layers[i].set_weights(model.layers[i].get_weights())
+        for i in range(len(model.layers)-2):
+            self.layers[0].layers[i].set_weights(model.layers[i].get_weights())
 
         self.save_weights(os.path.join(model_directory, 'pretrained_model'))
 
