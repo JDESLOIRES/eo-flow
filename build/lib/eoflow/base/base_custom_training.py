@@ -13,13 +13,14 @@ from eoflow.base.base_callbacks import CustomReduceLRoP
 from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
 from tensorflow.keras.layers import Dense, TimeDistributed, RepeatVector
 
+
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def __init__(self, config_specs):
         tf.keras.Model.__init__(self)
         Configurable.__init__(self, config_specs)
 
         self.net = None
-        self.ema = tf.train.ExponentialMovingAverage(decay=0.8)
+        self.ema = tf.train.ExponentialMovingAverage(decay=0.9)
 
         self.init_model()
 
@@ -97,7 +98,10 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def pretraining(self,  x, model_directory, shift = 3, batch_size=8, num_epochs=100):
 
         _ = self(tf.zeros([k for k in x.shape]))
-        top_model = self.layers[-2].output
+        n_outputs = self.config.nb_fc_stacks * 4 + 2
+        n_layers = len(self.layers[0].layers)
+
+        top_model = self.layers[0].layers[-(n_outputs)].output
         output_layer = Dense(units = x.shape[-1])(top_model)
         output_layer = RepeatVector(n=x.shape[1])(output_layer)
         model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer)
@@ -131,25 +135,28 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
             self.loss_metric.reset_states()
 
-        for i in range(len(self.layers)-2):
+        for i in range((n_layers-n_outputs) + 1):
             self.layers[i].set_weights(model.layers[i].get_weights())
 
         self.save_weights(os.path.join(model_directory, 'pretrained_model'))
 
 
-    def _init_weights_pretrained(self, model_directory, n_freeze =3):
+    def _init_weights_pretrained(self, model_directory, n_freeze = 3):
 
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
+        n_outputs = self.config.nb_fc_stacks * 4 + 2
+        n_layers = len(self.layers[0].layers)
 
-        for i in range(len(self.layers)-1):
-            print(i)
-            self.layers[i].set_weights(self.layers[i].get_weights())
-            if i<=n_freeze:
-                self.layers[i].trainable = False
+        for i in range((n_layers-n_outputs) + 1):
+            self.layers[0].layers[i].trainable = False
 
-    def _set_trainable(self):
-        for i in range(len(self.layers) - 1):
-            self.layers[i].trainable = True
+    def _set_trainable(self, n_freeze = 3):
+        n_outputs = self.config.nb_fc_stacks * 4 + 2
+        n_layers = len(self.layers[0].layers)
+
+        for i in range((n_layers-n_outputs) + 1):
+            self.layers[0].layers[i].trainable = True
+
 
     def fit(self,
             train_dataset,
@@ -201,7 +208,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            if epoch == patience:
+            if epoch == patience and pretraining:
                 self._set_trainable()
 
             if epoch % save_steps == 0:
@@ -230,7 +237,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
-                if wait >= patience: break
+                #if wait >= patience: break
 
             if reduce_lr:
                 reduce_rl_plateau.on_epoch_end(epoch, val_acc_result)

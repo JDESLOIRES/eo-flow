@@ -180,7 +180,6 @@ class TempCNNModel(BaseCustomTempnetsModel):
             net = tf.keras.layers.GlobalAveragePooling1D(name=name)(net)
         elif self.config.emb_layer == 'GlobalMaxPooling1D':
             net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
-
         return net
 
     def _fcn_layer(self, net):
@@ -211,7 +210,7 @@ class TempCNNModel(BaseCustomTempnetsModel):
             net = self._cnn_layer(net, i)
 
         net = self._embeddings(net)
-        self.backbone = tf.keras.Model(inputs=x, outputs=net)
+        #self.backbone = tf.keras.Model(inputs=x, outputs=net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(net)
@@ -228,8 +227,11 @@ class TempCNNModel(BaseCustomTempnetsModel):
     def call(self, inputs, training=None):
         return self.net(inputs, training)
 
-    def get_feature_map(self, inputs, training=None):
-        return self.backbone(inputs, training)
+    def get_feature_map(self):
+        output_layer = self.net.layers[-(self.config.nb_fc_stacks * 4 + 2)]
+        return tf.keras.Model(
+            inputs=self.net.layers[0].input, outputs=output_layer.output
+        )
 
 
 

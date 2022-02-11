@@ -17,7 +17,7 @@ def reshape_array(x, T=30) :
     x = np.moveaxis(x, 2, 1)
     return x
 
-path = '/home/johann/Documents/Syngenta/2021/fold_10/'
+path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2018/fold_3'
 x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_train = reshape_array(x_train)
@@ -27,7 +27,7 @@ y_val = np.load(os.path.join(path, 'val_y.npy'))
 x_test = np.load(os.path.join(path, 'test_x_S2.npy'))
 x_test = reshape_array(x_test)
 y_test = np.load(os.path.join(path, 'test_y.npy'))
-
+x_val.shape
 
 x_train = np.concatenate([x_train, x_val], axis = 0)
 y_train = np.concatenate([y_train, y_val], axis = 0)
@@ -36,7 +36,7 @@ plt.plot(x_train[0,:,10])
 plt.show()
 x_sh,mask = feature_noise(x_train, value=0.2, proba=0.15)
 
-x_sh,_ = timeshift(x_sh, value=5, proba=0.5)
+x_sh,_ = timeshift(x_sh, value=3, proba=0.5)
 plt.plot(x_train[0,:,10])
 plt.plot(x_sh[0,:,10])
 plt.show()
@@ -46,20 +46,20 @@ from sklearn.utils import resample
 # Model configuration CNN
 model_cfg_cnn = {
     "learning_rate": 10e-5,
-    "keep_prob" : 0.5,
-    "nb_conv_filters": 64,
+    "keep_prob" : 0.8, #should keep 0.8
+    "nb_conv_filters": 32, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 256,
+    "nb_fc_neurons" : 128,
     "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 1,
     "nb_conv_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
-    "padding": "CAUSAL",#"VALID", CAUSAL works great?!
+    "padding": "SAME",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "huber", #huber was working great for 2020 and 2021
+    "loss": "mse", #huber was working great for 2020 and 2021
     "enumerate" : True,
     "metrics": "mape"
 }
@@ -68,36 +68,41 @@ model_cfg_cnn = {
 model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
+model_cnn.build((None, 30,15))
 
-pretraining = True
+
+pretraining = False
+
 ts=3
+
 if pretraining:
-    model_cnn.pretraining(np.concatenate([x_train,x_val, x_test], axis = 0),
+    model_cnn.pretraining(np.concatenate([x_train, x_test], axis = 0),
                           model_directory='/home/johann/Documents/model_v5_' + str(ts),
                           num_epochs=100, shift=3)
 
+ts=3
+
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_val, y_val),
-    num_epochs=500,
+    val_dataset=(x_test, y_test),
+    num_epochs=300,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    shift_step = 0, #3
-    sdev_label =0, #0.1
-    feat_noise = 0, #0.2
+    shift_step = 3, #3
+    sdev_label =0.1, #0.1
+    feat_noise = 0.2, #0.2
     reduce_lr = False,
-    pretraining = pretraining,
+    pretraining = True,
     model_directory='/home/johann/Documents/model_v5_' + str(ts),
 )
 
-model_cnn.load_weights('/home/johann/Documents/model_v2_' + str(ts) + '/best_model')
+model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
 t = model_cnn.predict(x_test)
 
 plt.scatter(y_test,t)
-
 plt.show()
-
+mean_squared_error(y_test,t)
 r2_score(y_test,t)
 np.corrcoef(y_test.flatten(),t.flatten())
 
