@@ -17,7 +17,7 @@ def reshape_array(x, T=30) :
     x = np.moveaxis(x, 2, 1)
     return x
 
-path = '/home/johann/Documents/Syngenta/2021/fold_4/'
+path = '/home/johann/Documents/Syngenta/2021/fold_10/'
 x_train = np.load(os.path.join(path, 'training_x_S2.npy'))
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_train = reshape_array(x_train)
@@ -29,15 +29,12 @@ x_test = reshape_array(x_test)
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
 
-#x_train = np.concatenate([x_train, x_val], axis = 0)
-#y_train = np.concatenate([y_train, y_val], axis = 0)
+x_train = np.concatenate([x_train, x_val], axis = 0)
+y_train = np.concatenate([y_train, y_val], axis = 0)
 
 plt.plot(x_train[0,:,10])
 plt.show()
 x_sh,mask = feature_noise(x_train, value=0.2, proba=0.15)
-
-
-
 
 x_sh,_ = timeshift(x_sh, value=5, proba=0.5)
 plt.plot(x_train[0,:,10])
@@ -50,9 +47,9 @@ from sklearn.utils import resample
 model_cfg_cnn = {
     "learning_rate": 10e-5,
     "keep_prob" : 0.5,
-    "nb_conv_filters": 32,
+    "nb_conv_filters": 64,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 128,
+    "nb_fc_neurons" : 256,
     "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 1,
@@ -62,7 +59,7 @@ model_cfg_cnn = {
     "padding": "CAUSAL",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
     "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "mse", #huber was working great for 2020 and 2021
+    "loss": "huber", #huber was working great for 2020 and 2021
     "enumerate" : True,
     "metrics": "mape"
 }
@@ -72,36 +69,37 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
-
-ts = 4
-model_cnn.pretraining(x_train,
-                      model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
-                      num_epochs=20)
+pretraining = True
+ts=3
+if pretraining:
+    model_cnn.pretraining(np.concatenate([x_train,x_val, x_test], axis = 0),
+                          model_directory='/home/johann/Documents/model_v5_' + str(ts),
+                          num_epochs=100, shift=3)
 
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
+    val_dataset=(x_val, y_val),
     num_epochs=500,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    shift_step = 3,
-    sdev_label =0.1,
-    feat_noise = 0.3,
-    reduce_lr = True,
-    pretraining = True,
-    model_directory='/home/johann/Documents/model_KR_MSE_' + str(ts),
+    shift_step = 0, #3
+    sdev_label =0, #0.1
+    feat_noise = 0, #0.2
+    reduce_lr = False,
+    pretraining = pretraining,
+    model_directory='/home/johann/Documents/model_v5_' + str(ts),
 )
 
-model_cnn.load_weights('/home/johann/Documents/model_KR_MSE_' + str(ts) + '/best_model')
+model_cnn.load_weights('/home/johann/Documents/model_v2_' + str(ts) + '/best_model')
 t = model_cnn.predict(x_test)
 
+plt.scatter(y_test,t)
 
-y_test = 100*y_test + 50
-t = 100*t + 50
-mean_squared_error(y_test, t)
-r2_score(y_test, t)
+plt.show()
 
+r2_score(y_test,t)
+np.corrcoef(y_test.flatten(),t.flatten())
 
 ########################################################################################################################
 ########################################################################################################################

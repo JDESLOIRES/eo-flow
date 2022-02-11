@@ -14,6 +14,40 @@ def cropped_loss(loss_fn):
     return _loss_fn
 
 
+class PearsonR(Loss):
+    def __init__(self, reduction=Reduction.AUTO, name='Person'):
+        super().__init__(reduction=reduction, name=name)
+
+    def call(self, y_true, y_pred):
+        mx = tf.reduce_mean(y_true, axis=1, keepdims=True)
+        my = tf.reduce_mean(y_pred, axis=1, keepdims=True)
+        xm, ym = y_true - mx, y_pred - my
+        t1_norm = tf.nn.l2_normalize(xm, axis=1)
+        t2_norm = tf.nn.l2_normalize(ym, axis=1)
+        cosine = tf.keras.losses.CosineSimilarity(axis=1)
+        return cosine(t1_norm, t2_norm)
+
+
+class CosineSim(Loss):
+    def __init__(self, reduction=Reduction.AUTO, name='Cosine'):
+        super().__init__(reduction=reduction, name=name)
+
+    def call(self, y_true, y_pred):
+        cosine = tf.keras.losses.CosineSimilarity(axis=1)
+        return cosine(y_true, y_pred)
+
+
+def pearson_r(y_true, y_pred):
+    x = y_true
+    y = y_pred
+    mx = tf.reduce_mean(x, axis=1, keepdims=True)
+    my = tf.reduce_mean(y, axis=1, keepdims=True)
+    xm, ym = x - mx, y - my
+    t1_norm = tf.nn.l2_normalize(xm, axis = 1)
+    t2_norm = tf.nn.l2_normalize(ym, axis = 1)
+    return tf.losses.cosine_distance(t1_norm, t2_norm, axis = 1)
+
+
 class CategoricalCrossEntropy(Loss):
     """ Wrapper class for cross-entropy with class weights """
     def __init__(self, from_logits=True, class_weights=None, reduction=Reduction.AUTO, name='FocalLoss'):

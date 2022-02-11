@@ -47,7 +47,7 @@ def feature_noise(x_batch, value = 0.2, proba = 0.15):
     return ts_masking, mask
 
 
-def noisy_label(y_, stdev =0.1, proba = 0.25):
+def noisy_label(y_, stdev =0.1, proba = 0.15):
     y = y_.copy()
     y = y.reshape(y.shape[0], 1)
 

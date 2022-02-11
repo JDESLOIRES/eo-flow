@@ -8,7 +8,7 @@ from marshmallow.validate import OneOf, ContainsOnly
 from eoflow.base import BaseModelTraining, BaseModelCustomTraining
 import tensorflow as tensorflow
 
-from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss
+from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, PearsonR, CosineSim
 from eoflow.models.metrics import InitializableMetric, RSquared
 
 
@@ -22,7 +22,10 @@ dictionary_losses = {
     'huber': tensorflow.keras.losses.Huber,
     'mae': tensorflow.keras.losses.MeanAbsoluteError,
     'cross_entropy': CategoricalCrossEntropy,
-    'focal_loss': CategoricalFocalLoss
+    'focal_loss': CategoricalFocalLoss,
+    'kl' : tf.keras.losses.KLDivergence,
+    'pearson':  PearsonR,
+    'cosine' : CosineSim
 }
 
 # Available metrics. Add keys with new metrics here.
