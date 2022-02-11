@@ -141,7 +141,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
 
-        for i in range(len(self.layers) - 2):
+        for i in range(len(self.layers)-1):
+            print(i)
             self.layers[i].set_weights(self.layers[i].get_weights())
             if i<=n_freeze:
                 self.layers[i].trainable = False
