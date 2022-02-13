@@ -235,22 +235,23 @@ class TempCNNModel(BaseCustomTempnetsModel):
 
 
 
-class HistogramCNNModel(BaseTempnetsModel):
+
+class HistogramCNNModel(BaseCustomTempnetsModel):
     """ Implementation of the CNN2D with histogram time series
 
         https://cs.stanford.edu/~ermon/papers/cropyield_AAAI17.pdf
+        https://github.com/JiaxuanYou/crop_yield_prediction/blob/master/3%20model/nnet_for_hist_dropout_stride.py
     """
 
-    class HistogramCNNModel(BaseTempnetsModel._Schema):
+    class HistogramCNNModel(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
-        kernel_size = fields.List(fields.Int, missing=2, description='Size of the convolution kernels.')
+        kernel_size = fields.List(fields.Int, missing=[3,3], description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
-        nb_conv_strides = fields.List(fields.Int, missing=2, description='Value of convolutional strides.')
+        nb_conv_strides = fields.List(fields.Int, missing=[1,1], description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        final_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling2D', 'GlobalMaxPooling2D']),
-                                    description='Final layer after the convolutions.')
+
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
@@ -264,16 +265,10 @@ class HistogramCNNModel(BaseTempnetsModel):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
-        s_i, s_j = self.config.nb_conv_strides.copy()
 
         if self.config.enumerate:
             filters = filters * (2**i)
-            if last:
-                strides = self.config.nb_conv_strides.copy()
-            else:
-                strides = (s_i * (i + 1), s_i * (i + 1))
-
-            print(strides)
+            strides = 1 if not last else 2
 
         layer = tf.keras.layers.Conv2D(filters=filters,
                                        kernel_size=self.config.kernel_size,
@@ -284,23 +279,10 @@ class HistogramCNNModel(BaseTempnetsModel):
         if self.config.batch_norm:
             layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
 
-        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
-
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
         return layer
 
-    def _embeddings(self,net):
-
-        name = "embedding"
-        if self.config.emb_layer == 'Flatten':
-            net = tf.keras.layers.Flatten(name=name)(net)
-        elif self.config.emb_layer == 'GlobalAveragePooling2D':
-            net = tf.keras.layers.GlobalAveragePooling2D(name=name)(net)
-        elif self.config.emb_layer == 'GlobalMaxPooling2D':
-            net = tf.keras.layers.GlobalMaxPooling2D(name=name)(net)
-
-        return net
 
     def _fcn_layer(self, net):
         dropout_rate = 1 - self.config.keep_prob
@@ -326,14 +308,15 @@ class HistogramCNNModel(BaseTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks)):
+        for i, _ in enumerate(range(self.config.nb_conv_stacks -1)):
             net = self._cnn_layer(net, i)
-            print(net.shape)
             net = self._cnn_layer(net, i, True)
-            print(net.shape)
 
-        net = self._embeddings(net)
-        self.backbone = tf.keras.Model(inputs=x, outputs=net)
+        net = self._cnn_layer(net, i)
+        net = self._cnn_layer(net, i)
+        net = self._cnn_layer(net, i, True)
+
+        net = tf.keras.layers.Flatten(name='Flatten')(net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(net)
@@ -345,10 +328,63 @@ class HistogramCNNModel(BaseTempnetsModel):
 
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
-        #print_summary(self.net)
+        print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
 
     def get_feature_map(self, inputs, training=None):
         return self.backbone(inputs, training)
+
+
+
+
+class CNNTae(BaseCustomTempnetsModel):
+    """ Implementation of the Pixel-Set encoder + Temporal Attention Encoder sequence classifier
+
+    Code is based on the Pytorch implementation of V. Sainte Fare Garnot et al. https://github.com/VSainteuf/pytorch-psetae
+    """
+
+    class CNNTaeSchema(BaseCustomTempnetsModel._Schema):
+
+        num_heads = fields.Int(missing=4, description='Number of Attention heads.')
+        num_dff = fields.Int(missing=32, description='Number of feed-forward neurons in point-wise MLP.')
+        d_model = fields.Int(missing=None, description='Depth of model.')
+        mlp3 = fields.List(fields.Int, missing=[512, 128, 128], description='Number of units for each layer in mlp3.')
+        dropout = fields.Float(missing=0.2, description='Dropout rate for attention encoder.')
+        T = fields.Float(missing=1000, description='Number of features for attention.')
+        len_max_seq = fields.Int(missing=24, description='Number of features for attention.')
+        mlp4 = fields.List(fields.Int, missing=[128, 64, 32], description='Number of units for each layer in mlp4. ')
+
+    def init_model(self):
+        # TODO: missing features from original PseTae:
+        #   * spatial encoder extra features (hand-made)
+        #   * spatial encoder masking
+
+        self.spatial_encoder = pse_tae_layers.PixelSetEncoder(
+            mlp1=self.config.mlp1,
+            mlp2=self.config.mlp2,
+            pooling=self.config.pooling)
+
+        self.temporal_encoder = pse_tae_layers.TemporalAttentionEncoder(
+            n_head=self.config.num_heads,
+            d_k=self.config.num_dff,
+            d_model=self.config.d_model,
+            n_neurons=self.config.mlp3,
+            dropout=self.config.dropout,
+            T=self.config.T,
+            len_max_seq=self.config.len_max_seq)
+
+        mlp4_layers = [pse_tae_layers.LinearLayer(out_dim) for out_dim in self.config.mlp4]
+        # Final layer (logits)
+        mlp4_layers.append(pse_tae_layers.LinearLayer(1, batch_norm=False, activation='linear'))
+
+        self.mlp4 = tf.keras.Sequential(mlp4_layers)
+
+    def call(self, inputs, training=None, mask=None):
+
+        out = self.spatial_encoder(inputs, training=training, mask=mask)
+        out = self.temporal_encoder(out, training=training, mask=mask)
+        out = self.mlp4(out, training=training, mask=mask)
+
+        return out
