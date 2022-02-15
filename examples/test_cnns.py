@@ -128,9 +128,9 @@ model_cnn.train_and_evaluate(
     shift_step = 3, #3
     sdev_label =0.1, #0.1
     feat_noise = 0.2, #0.2
-    patience = 10,
+    patience = 500,
     reduce_lr = False,
-    pretraining = True,
+    pretraining = False,
     model_directory='/home/johann/Documents/model_32',
 )
 
