@@ -43,7 +43,6 @@ def feature_noise(x_batch, value = 0.2, proba = 0.15):
                     ts_masking[i, j, :] += np.random.uniform(low=-value, high=0, size=(x_batch.shape[2]))
                 else:
                     ts_masking[i, j, :] += np.random.uniform(low=0, high=value, size=(x_batch.shape[2]))
-
     return ts_masking, mask
 
 

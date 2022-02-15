@@ -25,7 +25,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x_vis = reshape_array(x_vis, T)
     return np.concatenate([x_bands, x_vis], axis = -1)
 
-path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2017/fold_1'
+path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -44,13 +44,12 @@ x_test = x_test.reshape((x_test.shape[0],x_test.shape[1]*x_test.shape[2]))
 model.fit(x_train, y_train)
 preds = model.predict(x_test)
 '''
+x_train.shape
 x_sh,mask = feature_noise(x_train, value=0.2, proba=0.15)
 
-x_sh,_ = timeshift(x_test, value=3, proba=0.5)
-plt.plot(x_train[10,:,7])
-plt.plot(x_train[700,:,7])
+plt.plot(x_sh[50,:,1])
+plt.plot(x_train[50,:,1])
 plt.show()
-from sklearn.utils import resample
 
 
 model_cfg_cnn = {
@@ -106,8 +105,8 @@ ts=3
 if pretraining:
     x_pretrain = np.concatenate([x_train, x_test], axis = 0)
     model_cnn.pretraining(x_pretrain,
-                          model_directory='/home/johann/Documents/model_256',
-                          num_epochs=300, shift=3)
+                          model_directory='/home/johann/Documents/model_32',
+                          num_epochs=30, shift=1)
 
 ts=3
 
@@ -123,8 +122,8 @@ model_cnn.train_and_evaluate(
     feat_noise = 0.2, #0.2
     patience = 30,
     reduce_lr = False,
-    pretraining = True,
-    model_directory='/home/johann/Documents/model_256',
+    pretraining = False,
+    model_directory='/home/johann/Documents/model_32',
 )
 
 

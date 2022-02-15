@@ -24,8 +24,11 @@ def npy_concatenate(path, prefix = 'training_x'):
 path = '/home/johann/Documents/Syngenta/Histograms/2020'
 x_train = npy_concatenate(path, 'training_x')
 x_train[np.isnan(x_train)] = 0
+plt.imshow(x_train[10,:,:,12], origin = 'lower')
 
 y_train = np.load(os.path.join(path, 'training_y.npy'))
+
+
 x_val = npy_concatenate(path, 'val_x')
 x_val[np.isnan(x_val)] = 0
 
@@ -38,6 +41,7 @@ y_test = np.load(os.path.join(path, 'test_y.npy'))
 x_train = np.concatenate([x_train, x_val], axis = 0)
 y_train = np.concatenate([y_train, y_val], axis = 0)
 
+
 np.mean(x_train.flatten())
 
 # Model configuration CNN
@@ -46,17 +50,18 @@ np.mean(x_train.flatten())
 model_cfg_cnn2d = {
     "learning_rate": 10e-4,
     "keep_prob" : 0.5,
-    "nb_conv_filters": 64,
+    "nb_conv_filters": 16,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 1024,
+    "nb_fc_neurons" : 512,
     "nb_fc_stacks": 1, #Nb FCN layers
-    "kernel_size" : [3,3],
+    "kernel_size" : [2,2],
     "nb_conv_strides" : [1,1],
     "kernel_initializer" : 'he_normal',
+    "fc_activation" : 'relu',
     "batch_norm": True,
+    'emb_layer' : 'Flatten',
     "padding": "SAME",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'Flatten',
     "loss": "mse",
     "enumerate" : True,
     "metrics": 'r_square'
@@ -76,7 +81,7 @@ model_cnn.prepare()
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
-    num_epochs=500,
+    num_epochs=1000,
     save_steps=5,
     batch_size = 16,
     function = np.min,
@@ -86,3 +91,6 @@ model_cnn.train_and_evaluate(
     model_directory='/home/johann/Documents/model_hist',
 )
 
+t = model_cnn.predict(x_train)
+plt.scatter(y_train.flatten(), t.flatten())
+plt.show()

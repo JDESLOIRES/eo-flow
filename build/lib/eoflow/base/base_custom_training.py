@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import numpy as np
 import pickle
@@ -92,7 +93,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 reduce_lin=reduce_lin)
 
 
-    def pretraining(self,  x, model_directory, shift = 3, batch_size=8, num_epochs=100):
+    def pretraining(self,  x, model_directory, batch_size=8, num_epochs=100, shift = 0):
         _ = self(tf.zeros([k for k in x.shape]))
         n_layers = len(self.layers[0].layers)
 
@@ -104,7 +105,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         for epoch in range(num_epochs):
             x = shuffle(x)
-            x, _ = timeshift(x, shift)
+            if shift:
+                x, _ = timeshift(x, shift)
             ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x, ts_masking, mask))
@@ -112,11 +114,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
             for x_batch, ts_masking_batch, mask_batch in train_ds:  # tqdm
                 with tf.GradientTape() as tape:
-                    x_preds = model.call(ts_masking_batch,
-                                         training=True)
-
-                    cost = self.loss(x_batch, x_preds) * mask_batch
-                    cost = tf.reduce_mean(cost)
+                    x_preds = model.call(ts_masking_batch, training=True)
+                    cost = self.loss(x_batch, x_preds)
+                    cost = tf.reduce_mean(cost* mask_batch)
 
                 grads = tape.gradient(cost, model.trainable_variables)
                 self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
@@ -197,7 +197,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            #if epoch == patience and pretraining: self._allow_training()
+            if epoch == patience and pretraining:
+                self._allow_training()
 
             if epoch % save_steps == 0:
                 self.val_step(val_ds)

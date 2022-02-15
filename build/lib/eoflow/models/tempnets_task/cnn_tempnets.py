@@ -240,6 +240,7 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
     """ Implementation of the CNN2D with histogram time series
 
         https://cs.stanford.edu/~ermon/papers/cropyield_AAAI17.pdf
+        https://github.com/JiaxuanYou/crop_yield_prediction/blob/master/3%20model/nnet_for_hist_dropout_stride.py
     """
 
     class HistogramCNNModel(BaseCustomTempnetsModel._Schema):
@@ -250,8 +251,9 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         nb_conv_strides = fields.List(fields.Int, missing=[1,1], description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        emb_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten','GlobalAveragePooling2D', 'GlobalMaxPooling2D']),
-                                    description='Final layer after the convolutions.')
+        emb_layer = fields.String(missing='Flatten',
+                                  validate=OneOf(['Flatten', 'GlobalAveragePooling2D', 'GlobalMaxPooling2D']),
+                                  description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
@@ -265,7 +267,6 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
-        #s_i, s_j = self.config.nb_conv_strides.copy()
 
         if self.config.enumerate:
             filters = filters * (2**i)
@@ -280,23 +281,10 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         if self.config.batch_norm:
             layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
 
-        #if self.config.enumerate: layer = tf.keras.layers.MaxPool1D()(layer)
-
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
         return layer
 
-    def _embeddings(self,net):
-
-        name = "embedding"
-        if self.config.emb_layer == 'Flatten':
-            net = tf.keras.layers.Flatten(name=name)(net)
-        elif self.config.emb_layer == 'GlobalAveragePooling2D':
-            net = tf.keras.layers.GlobalAveragePooling2D(name=name)(net)
-        elif self.config.emb_layer == 'GlobalMaxPooling2D':
-            net = tf.keras.layers.GlobalMaxPooling2D(name=name)(net)
-
-        return net
 
     def _fcn_layer(self, net):
         dropout_rate = 1 - self.config.keep_prob
@@ -313,6 +301,18 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         return layer_fcn
 
 
+    def _embeddings(self,net):
+
+        name = "embedding"
+        if self.config.emb_layer == 'Flatten':
+            net = tf.keras.layers.Flatten(name=name)(net)
+        elif self.config.emb_layer == 'GlobalAveragePooling2D':
+            net = tf.keras.layers.GlobalAveragePooling2D(name=name)(net)
+        elif self.config.emb_layer == 'GlobalMaxPooling2D':
+            net = tf.keras.layers.GlobalMaxPooling2D(name=name)(net)
+        return net
+
+
     def build(self, inputs_shape):
         """ Build TCN architecture
 
@@ -322,13 +322,13 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks -1)):
+        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
             net = self._cnn_layer(net, i)
             net = self._cnn_layer(net, i, True)
 
-        net = self._cnn_layer(net, i)
-        net = self._cnn_layer(net, i)
-        net = self._cnn_layer(net, i, True)
+        net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
+        net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
+        net = self._cnn_layer(net, self.config.nb_conv_stacks-1, True)
 
         net = self._embeddings(net)
 
