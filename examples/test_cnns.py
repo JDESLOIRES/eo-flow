@@ -31,7 +31,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2017/fold_1'
+path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -110,7 +110,7 @@ if pretraining:
     x_pretrain = np.concatenate([x_train, x_test], axis = 0)
     model_cnn.pretraining(x_pretrain,
                           model_directory='/home/johann/Documents/model_32',
-                          num_epochs=50, shift=2)
+                          num_epochs=500, shift=3)
 
 ts=3
 
@@ -124,14 +124,14 @@ model_cnn.train_and_evaluate(
     shift_step = 3, #3
     sdev_label =0.1, #0.1
     feat_noise = 0.2, #0.2
-    patience = 100,
+    patience = 10,
     reduce_lr = False,
-    pretraining = False,
+    pretraining = True,
     model_directory='/home/johann/Documents/model_32',
 )
 
 
-path
+
 model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
 t = model_cnn.predict(x_test)
 

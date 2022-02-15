@@ -21,12 +21,35 @@ def npy_concatenate(path, prefix = 'training_x'):
     x_vis = np.load(path_npy  + '_vis.npy')
     return np.concatenate([x_bands, x_vis], axis = -1)
 
+
+def ts_concatenate(path, prefix='training_x', T=30):
+    def reshape_array(x, T=30):
+        x = x.reshape(x.shape[0], x.shape[1] // T, T)
+        x = np.moveaxis(x, 2, 1)
+        return x
+    path_npy = os.path.join(path, prefix)
+    x = np.load(path_npy + '_S2.npy')
+    x = reshape_array(x, T)
+    return x
+
 path = '/home/johann/Documents/Syngenta/Histograms/2020'
 x_train = npy_concatenate(path, 'training_x')
 x_train[np.isnan(x_train)] = 0
 plt.imshow(x_train[10,:,:,12], origin = 'lower')
 
 y_train = np.load(os.path.join(path, 'training_y.npy'))
+mins = np.where(y_train == np.min(y_train))[0]
+maxs = np.where(y_train == np.max(y_train))[0]
+plt.imshow(x_train[mins[2],:,:,13], origin = 'lower')
+plt.show()
+plt.imshow(x_train[maxs[2],:,:,13], origin = 'lower')
+plt.show()
+x_train_ts = ts_concatenate('/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1', 'training_x')
+y_ts = np.load('/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1/training_y.npy')
+
+plt.plot(x_train_ts[mins[2],:,13])
+plt.plot(x_train_ts[maxs[2],:,13])
+plt.show()
 
 
 x_val = npy_concatenate(path, 'val_x')
@@ -72,8 +95,8 @@ model_cfg_cnn2d = {
 model_cnn = cnn_tempnets.HistogramCNNModel(model_cfg_cnn2d)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-#model_cnn.build((None, 32, 30, 15))
-#model_cnn(x_train)
+model_cnn.build((None, 32, 30, 15))
+model_cnn(x_train)
 
 
 
