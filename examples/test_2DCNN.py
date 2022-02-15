@@ -47,6 +47,9 @@ plt.show()
 x_train_ts = ts_concatenate('/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1', 'training_x')
 y_ts = np.load('/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1/training_y.npy')
 
+n,h,w = x_train_ts.shape
+x_train_ts_un = x_train_ts.reshape(n,h*w)
+x_train_ts_un.reshape(n,h,w) == x_train_ts
 plt.plot(x_train_ts[mins[2],:,13])
 plt.plot(x_train_ts[maxs[2],:,13])
 plt.show()

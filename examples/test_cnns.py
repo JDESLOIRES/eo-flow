@@ -110,9 +110,13 @@ if pretraining:
     x_pretrain = np.concatenate([x_train, x_test], axis = 0)
     model_cnn.pretraining(x_pretrain,
                           model_directory='/home/johann/Documents/model_32',
-                          num_epochs=500, shift=3)
+                          num_epochs=50, shift=3)
 
 ts=3
+self = model_cnn
+x = x_train
+batch_size = 8
+
 
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
