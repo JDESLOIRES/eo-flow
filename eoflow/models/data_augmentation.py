@@ -60,3 +60,12 @@ def noisy_label(y_, stdev =0.1, proba = 0.15):
 
     return y
 
+
+def data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label):
+    if shift_step:
+        x_train_, _ = timeshift(x_train_, shift_step)
+    if feat_noise:
+        x_train_, _ = feature_noise(x_train_, feat_noise)
+    if sdev_label:
+        y_train_ = noisy_label(y_train_, sdev_label)
+    return x_train_, y_train_

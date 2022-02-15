@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from . import Configurable
 from eoflow.base.base_callbacks import CustomReduceLRoP
-from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
+from eoflow.models.data_augmentation import data_augmentation, timeshift, feature_noise
 from tensorflow.keras.layers import Dense, RepeatVector
 
 
@@ -55,6 +55,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 y_preds = self.call(x_batch_train,
                                     training=True)
 
+
                 cost = self.loss(y_batch_train, y_preds)
 
             grads = tape.gradient(cost, self.trainable_variables)
@@ -72,15 +73,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             self.loss_metric.update_state(cost)
             self.metric.update_state(y + 1, y_preds + 1)
 
-    @staticmethod
-    def _data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label):
-        if shift_step:
-            x_train_, _ = timeshift(x_train_, shift_step)
-        if feat_noise:
-            x_train_, _ = feature_noise(x_train_, feat_noise)
-        if sdev_label:
-            y_train_ = noisy_label(y_train_, sdev_label)
-        return x_train_, y_train_
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,
@@ -93,7 +85,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 reduce_lin=reduce_lin)
 
 
-    def pretraining(self,  x, model_directory, batch_size=8, num_epochs=100, shift = 0):
+    def pretraining(self,  x, model_directory,
+                    batch_size=8, num_epochs=100,
+                    loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE),
+                    shift = 0):
+
         _ = self(tf.zeros([k for k in x.shape]))
         n_layers = len(self.layers[0].layers)
 
@@ -115,16 +111,15 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             for x_batch, ts_masking_batch, mask_batch in train_ds:  # tqdm
                 with tf.GradientTape() as tape:
                     x_preds = model.call(ts_masking_batch, training=True)
-                    cost = self.loss(x_batch, x_preds)
+
+                    cost = loss(x_batch, x_preds)
                     cost = tf.reduce_mean(cost* mask_batch)
 
                 grads = tape.gradient(cost, model.trainable_variables)
                 self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
-                self.loss_metric.update_state(cost)
 
-            if epoch%5==0: print("Epoch {0}: Train loss {1}".format(str(epoch), str(cost)))
+            if epoch%5==0: print("Epoch {0}: Train loss {1}".format(str(epoch), str(cost.numpy())))
 
-            self.loss_metric.reset_states()
 
         for i in range(n_layers-1):
             self.layers[0].layers[i].set_weights(model.layers[i].get_weights())
@@ -185,8 +180,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         for epoch in range(num_epochs + 1):
 
             x_train_, y_train_ = shuffle(x_train, y_train)
-            x_train_, y_train_ = self._data_augmentation(x_train_, y_train_,
-                                                         shift_step, feat_noise, sdev_label)
+            x_train_, y_train_ = data_augmentation(x_train_, y_train_,
+                                                   shift_step, feat_noise, sdev_label)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
@@ -197,7 +192,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            if epoch == patience and pretraining:
+            if patience and epoch == patience and pretraining:
                 self._allow_training()
 
             if epoch % save_steps == 0:
