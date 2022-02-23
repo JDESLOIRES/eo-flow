@@ -54,8 +54,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             with tf.GradientTape() as tape:
                 y_preds = self.call(x_batch_train,
                                     training=True)
-
-
                 cost = self.loss(y_batch_train, y_preds)
 
             grads = tape.gradient(cost, self.trainable_variables)
@@ -71,8 +69,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             y_preds = self.call(x, training=False)
             cost = self.loss(y, y_preds)
             self.loss_metric.update_state(cost)
-            self.metric.update_state(y + 1, y_preds + 1)
-
+            self.metric.update_state(y, y_preds)
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,
@@ -84,68 +81,24 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                                 optim_lr=self.optimizer.learning_rate,
                                 reduce_lin=reduce_lin)
 
-    def _init_model_pretrain(self, x):
-
-        top_model = self.layers[0].layers[-2].output
-        output_layer = Dense(units = x.shape[-1] * x.shape[-2])(top_model)
-        model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer)
-        _ = model(tf.zeros([k for k in x.shape]))
-        print(model.summary())
-        return model
-
-    def pretraining(self,  x, model_directory,
-                    batch_size=8, num_epochs=100,
-                    loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE),
-                    shift = 0):
-
-
-        _ = self(tf.zeros([k for k in x.shape]))
-        n_layers = len(self.layers[0].layers)
-        model = self._init_model_pretrain(x)
-
-        for epoch in range(num_epochs):
-            x = shuffle(x)
-            if shift: x, _ = timeshift(x, shift)
-            ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
-
-            train_ds = tf.data.Dataset.from_tensor_slices((x, ts_masking, mask))
-            train_ds = train_ds.batch(batch_size)
-
-            for x_batch, ts_masking_batch, mask_batch in train_ds:  # tqdm
-                n, t, d = x_batch.shape
-                with tf.GradientTape() as tape:
-                    x_preds = model.call(ts_masking_batch, training=True)
-                    x_preds = tf.reshape(x_preds,(n, t, d))
-
-                    cost = loss(x_batch, x_preds)
-                    cost = tf.multiply(cost, mask_batch)
-                    cost = tf.reduce_mean(cost)
-
-                grads = tape.gradient(cost, model.trainable_weights)
-                self.optimizer.apply_gradients(zip(grads, model.trainable_weights))
-
-            if epoch%5==0:
-                print("Epoch {0}: Train loss {1}".format(str(epoch), str(cost.numpy())))
-
-        for i in range(n_layers-1):
-            self.layers[0].layers[i].set_weights(model.layers[i].get_weights())
-
-        self.save_weights(os.path.join(model_directory, 'pretrained_model'))
-
     def _set_trainable(self, bool = True):
         n_layers = len(self.layers[0].layers)
-        n_outputs = self.config.nb_fc_stacks * 4 + 1
+        fc_sublayers = 4 if self.config.fc_activation else 3
+        print(fc_sublayers)
+        n_outputs = self.config.nb_fc_stacks * fc_sublayers + 1
 
         for i in range(n_layers-n_outputs):
             self.layers[0].layers[i].trainable = bool
 
 
-    def _init_weights_pretrained(self, model_directory):
+    def _init_weights_pretrained(self, model_directory, patience=0):
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
-        self._set_trainable(False)
+        if patience:
+            self._set_trainable(False)
 
     def _allow_training(self):
         self._set_trainable(True)
+
 
     def fit(self,
             train_dataset,
@@ -158,7 +111,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             feat_noise=0,
             sdev_label=0,
             reduce_lr = False,
-            pretraining = False,
+            pretraining_path = None,
             patience = 30,
             function=np.min):
 
@@ -177,8 +130,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         _ = self(tf.zeros([k for k in x_train.shape]))
 
-        if pretraining:
-            self._init_weights_pretrained(model_directory)
+        if pretraining_path:
+            self._init_weights_pretrained(pretraining_path, patience)
             for var in self.optimizer.variables():
                 var.assign(tf.zeros_like(var))
 
@@ -197,7 +150,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            if patience and epoch == patience and pretraining:
+            if patience and epoch == patience and pretraining_path:
                 self._allow_training()
 
             if epoch % save_steps == 0:
@@ -211,12 +164,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
                 wait += 1
 
-                if (
-                        function is np.min
-                        and val_loss_epoch < function(val_loss)
-                        or function is np.max
-                        and val_loss_epoch > function(val_loss)
-                ):
+                if (function is np.min and val_loss_epoch < function(val_loss)
+                        or function is np.max and val_loss_epoch > function(val_loss)):
+
                     wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.save_weights(os.path.join(model_directory, 'best_model'))
@@ -225,8 +175,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 val_acc.append(val_acc_result)
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
-
-                #if wait >= patience: break
 
             if reduce_lr:
                 reduce_rl_plateau.on_epoch_end(epoch, val_acc_result)
@@ -239,7 +187,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                       )
         with open(os.path.join(model_directory, 'history.pickle'), 'wb') as d:
             pickle.dump(losses, d, protocol=pickle.HIGHEST_PROTOCOL)
-
 
     def train_and_evaluate(self,
                            train_dataset,

@@ -1,19 +1,21 @@
 import numpy as np
 import random
 
-def timeshift(x_, value = 4, proba = 0.5):
+def timeshift(x_, value = 4, proba = 0.5): #0.5 before
     x = x_.copy()
 
     def _shift(x, rand_unif):
         return np.roll(x, rand_unif)
 
     shift_list = []
+    mask  = np.zeros((x.shape[0]), dtype='float32')
 
     for i in range(x.shape[0]):
         prob = random.random()
         if prob<proba:
             rand_unif = np.random.randint(value) +1
             prob /= proba
+            mask[i] = 1
             if prob < 0.5:
                 rand_unif*=-1
                 x[i,] = np.apply_along_axis(_shift, 0, x[i,], **{'rand_unif' : rand_unif})
@@ -23,7 +25,7 @@ def timeshift(x_, value = 4, proba = 0.5):
         else:
             shift_list.append(0)
 
-    return x, shift_list
+    return x, shift_list, mask
 
 
 
@@ -63,7 +65,7 @@ def noisy_label(y_, stdev =0.1, proba = 0.15):
 
 def data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label):
     if shift_step:
-        x_train_, _ = timeshift(x_train_, shift_step)
+        x_train_, _, _ = timeshift(x_train_, shift_step)
     if feat_noise:
         x_train_, _ = feature_noise(x_train_, feat_noise)
     if sdev_label:

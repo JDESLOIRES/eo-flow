@@ -31,7 +31,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_training_5_folds/2020/fold_1'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -42,7 +42,9 @@ x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
 x_train = np.concatenate([x_train, x_val], axis = 0)
+x_test.shape[0]
 y_train = np.concatenate([y_train, y_val], axis = 0)
+
 '''
 from sklearn.ensemble import RandomForestRegressor
 model = RandomForestRegressor(max_depth=8)
@@ -51,28 +53,26 @@ x_test = x_test.reshape((x_test.shape[0],x_test.shape[1]*x_test.shape[2]))
 model.fit(x_train, y_train)
 preds = model.predict(x_test)
 r2_score(y_test, preds)
+
 '''
 
-x_sh,mask = feature_noise(x_train, value=0.5, proba=0.15)
-
-
-model_cfg_cnn = {
+model_cfg_tempcnn = {
     "learning_rate": 10e-4,
-    "keep_prob" : 0.8, #should keep 0.8
-    "nb_conv_filters": 16, #wiorks great with 32
+    "keep_prob" : 0.5, #should keep 0.8
+    "nb_conv_filters": 64, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 32,
-    "nb_fc_stacks": 2, #Nb FCN layers
-    "fc_activation" : None,
+    "nb_fc_neurons" : 256,
+    "nb_fc_stacks": 1, #Nb FCN layers
+    "fc_activation" : 'relu',
     "kernel_size" : 1,
     "nb_conv_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
     "padding": "SAME",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'GlobalAveragePooling1D',
+    "emb_layer" : 'Flatten',
     "loss": "mse", #huber was working great for 2020 and 2021
-    "enumerate" : True,
+    "enumerate" : False,
     "metrics": "r_square"
 }
 
@@ -82,7 +82,7 @@ model_cfg_cnn = {
     "keep_prob" : 0.5, #should keep 0.8
     "nb_conv_filters": 16, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 32,
+    "nb_fc_neurons" : 512,
     "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 1,
@@ -91,48 +91,57 @@ model_cfg_cnn = {
     "batch_norm": True,
     "padding": "SAME",#"VALID", CAUSAL works great?!
     "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'GlobalAveragePooling1D',
+    "emb_layer" : 'Flatten',
     "loss": "mse", #huber was working great for 2020 and 2021
     "enumerate" : True,
     "metrics": "r_square"
 }
 
-
-model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
+#MODEL 64 128 with drop out 0.5 works great on 2019
+model_cnn = cnn_tempnets.TempCNNModel(model_cfg_tempcnn)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-
+self = model_cnn
 pretraining = False
 
-ts=3
 
 if pretraining:
     x_pretrain = np.concatenate([x_train, x_test], axis = 0)
+
     model_cnn.pretraining(x_pretrain,
-                          model_directory='/home/johann/Documents/model_32',
-                          num_epochs=50, shift=3)
+                          pretraining_path='/home/johann/Documents/model_16_Flatten_SAME',
+                          num_epochs=100, shift=0, lambda_ = 0.1)
+
+
+model_cnn.cotraining(train_dataset=(x_train, y_train),
+                     val_dataset=(x_test, y_test),
+                     num_epochs=500,
+                     batch_size = 16,
+                     lambda_=0.8,
+                     pretraining_path ='/home/johann/Documents/TempCNN_pretrained')
 
 ts=3
 self = model_cnn
 x = x_train
 batch_size = 8
 
-
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
-    num_epochs=500,
+    num_epochs=1000,
     save_steps=5,
     batch_size = 8,
     function = np.min,
     shift_step = 3, #3
     sdev_label =0.1, #0.1
-    feat_noise = 0.2, #0.2
-    patience = 500,
+    feat_noise = 0.5, #0.2
+    patience = 0,
     reduce_lr = False,
-    pretraining = False,
-    model_directory='/home/johann/Documents/model_32',
+    #pretraining_path ='/home/johann/Documents/TempCNN_pretrained',
+    model_directory='/home/johann/Documents/model_512',
 )
+
+
 
 
 
@@ -152,7 +161,7 @@ np.corrcoef(y_test.flatten(),t.flatten())
 # Model configuration CNN
 model_cfg_cnn2d = {
     "learning_rate": 10e-5,
-    "keep_prob" : 0.5,
+    "keep_prob" : 0.8,
     "nb_conv_filters": 128,
     "nb_conv_stacks": 3,  # Nb Conv layers
     "nb_fc_neurons" : 2048,

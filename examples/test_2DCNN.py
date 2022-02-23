@@ -78,7 +78,7 @@ model_cfg_cnn2d = {
     "keep_prob" : 0.5,
     "nb_conv_filters": 16,
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 512,
+    "nb_fc_neurons" : 128,
     "nb_fc_stacks": 1, #Nb FCN layers
     "kernel_size" : [2,2],
     "nb_conv_strides" : [1,1],
@@ -98,10 +98,6 @@ model_cfg_cnn2d = {
 model_cnn = cnn_tempnets.HistogramCNNModel(model_cfg_cnn2d)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-model_cnn.build((None, 32, 30, 15))
-model_cnn(x_train)
-
-
 
 
 model_cnn.train_and_evaluate(
@@ -109,11 +105,11 @@ model_cnn.train_and_evaluate(
     val_dataset=(x_test, y_test),
     num_epochs=1000,
     save_steps=5,
-    batch_size = 16,
+    batch_size = 8,
     function = np.min,
     patience = 30,
     reduce_lr = False,
-    pretraining = False,
+    sdev_label = 0,
     model_directory='/home/johann/Documents/model_hist',
 )
 

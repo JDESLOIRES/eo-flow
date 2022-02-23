@@ -36,11 +36,11 @@ class BiRNN(BaseCustomTempnetsModel):
         rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
         bidirectional = fields.Bool(missing=True, description='Whether to use a bidirectional layer')
 
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         nb_fc_stacks = fields.Int(missing=0, description='Number of fully connected layers.')
         nb_fc_neurons = fields.Int(missing=0, description='Number of fully connected neurons.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
 
         layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
