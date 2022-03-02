@@ -43,7 +43,7 @@ class CustomReduceLRoP:
                  mode='auto',
                  min_delta=1e-4,
                  cooldown=0,
-                 min_lr=0,
+                 min_lr=10e-6,
                  sign_number=4,
                  ## Custom modification: Passing optimizer as arguement
                  optim_lr=None,

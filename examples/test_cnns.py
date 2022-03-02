@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
 ########################################################################################################################
 ########################################################################################################################
+
 def reshape_array(x, T=30) :
     x = x.reshape(x.shape[0], x.shape[1] // T, T)
     x = np.moveaxis(x, 2, 1)
@@ -31,7 +32,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2020'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -41,9 +42,9 @@ y_val = np.load(os.path.join(path, 'val_y.npy'))
 x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
-x_train = np.concatenate([x_train, x_val], axis = 0)
-x_test.shape[0]
-y_train = np.concatenate([y_train, y_val], axis = 0)
+#x_train = np.concatenate([x_train, x_val], axis = 0)
+#y_train = np.concatenate([y_train, y_val], axis = 0)
+
 
 '''
 from sklearn.ensemble import RandomForestRegressor
@@ -56,98 +57,83 @@ r2_score(y_test, preds)
 
 '''
 
-model_cfg_tempcnn = {
-    "learning_rate": 10e-4,
-    "keep_prob" : 0.5, #should keep 0.8
+
+model_cfg_cnn_stride = {
+    "learning_rate": 10e-3,
+    "keep_prob" : 0.8, #should keep 0.8
     "nb_conv_filters": 64, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 256,
+    "nb_fc_neurons" : 128,
     "nb_fc_stacks": 1, #Nb FCN layers
     "fc_activation" : 'relu',
-    "kernel_size" : 1,
-    "nb_conv_strides" :1,
+    "kernel_size" : 3,
+    "n_strides" :1,
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
-    "padding": "SAME",#"VALID", CAUSAL works great?!
+    "padding": "SAME",
     "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'Flatten',
-    "loss": "mse", #huber was working great for 2020 and 2021
-    "enumerate" : False,
-    "metrics": "r_square"
-}
-
-# Model configuration CNN
-model_cfg_cnn = {
-    "learning_rate": 10e-5,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 16, #wiorks great with 32
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 512,
-    "nb_fc_stacks": 1, #Nb FCN layers
-    "fc_activation" : 'relu',
-    "kernel_size" : 1,
-    "nb_conv_strides" :1,
-    "kernel_initializer" : 'he_normal',
-    "batch_norm": True,
-    "padding": "SAME",#"VALID", CAUSAL works great?!
-    "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'Flatten',
+    "emb_layer" : 'GlobalAveragePooling1D',
     "loss": "mse", #huber was working great for 2020 and 2021
     "enumerate" : True,
+    'str_inc' : True,
     "metrics": "r_square"
 }
 
 #MODEL 64 128 with drop out 0.5 works great on 2019
-model_cnn = cnn_tempnets.TempCNNModel(model_cfg_tempcnn)
+model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-self = model_cnn
-pretraining = False
 
+pretraining = False
+cotraining = False
 
 if pretraining:
     x_pretrain = np.concatenate([x_train, x_test], axis = 0)
-
     model_cnn.pretraining(x_pretrain,
-                          pretraining_path='/home/johann/Documents/model_16_Flatten_SAME',
-                          num_epochs=100, shift=0, lambda_ = 0.1)
+                          pretraining_path='/home/johann/Documents/model_64_Causal_Stride_shift_4',
+                          #pretraining_path='/home/johann/Documents/model_64_Stride_SAME_shift_5',
+                          num_epochs=200, shift=4, lambda_ =0.5)
 
+if cotraining:
+    model_cnn.cotraining(train_dataset=(x_train, y_train),
+                         val_dataset=(x_test, y_test),
+                         num_epochs=500,
+                         batch_size = 8,
+                         lambda_=0.8,
+                         patience = 50,
+                         pretraining_path ='/home/johann/Documents/model_64_Causal_Stride_shift_4')
 
-model_cnn.cotraining(train_dataset=(x_train, y_train),
-                     val_dataset=(x_test, y_test),
-                     num_epochs=500,
-                     batch_size = 16,
-                     lambda_=0.8,
-                     pretraining_path ='/home/johann/Documents/TempCNN_pretrained')
 
 ts=3
 self = model_cnn
 x = x_train
 batch_size = 8
 
+print(path)
+
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
-    num_epochs=1000,
+    val_dataset=(x_val, y_val),
+    test_dataset=(x_test, y_test),
+    num_epochs=500,
     save_steps=5,
     batch_size = 8,
     function = np.min,
-    shift_step = 3, #3
-    sdev_label =0.1, #0.1
-    feat_noise = 0.5, #0.2
-    patience = 0,
-    reduce_lr = False,
-    #pretraining_path ='/home/johann/Documents/TempCNN_pretrained',
-    model_directory='/home/johann/Documents/model_512',
+    shift_step = 0, #3
+    sdev_label =0, #0.1
+    feat_noise = 0, #0.2
+    patience = 100,
+    forget = 0,
+    reduce_lr = True,
+    #finetuning = True,
+    #pretraining_path ='/home/johann/Documents/model_64_Causal_Stride_shift_0',
+    model_directory='/home/johann/Documents/model_16',
 )
-
-
-
 
 
 model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
 t = model_cnn.predict(x_test)
-
+x_test.shape
 plt.scatter(y_test,t)
 plt.show()
 mean_squared_error(y_test,t)
@@ -155,6 +141,131 @@ r2_score(y_test,t)
 
 np.corrcoef(y_test.flatten(),t.flatten())
 
+
+
+'''
+model_cfg_cnn_stride = { #was working great with timeshift = p :.5, t=2, noise 0.1 feat_noise 0.3
+    "learning_rate": 5e-4,
+    "keep_prob" : 0.5, #should keep 0.8
+    "nb_conv_filters": 64, #wiorks great with 32
+    "nb_conv_stacks": 3,  # Nb Conv layers
+    "nb_fc_neurons" : 64,
+    "nb_fc_stacks": 2, #Nb FCN layers
+    "fc_activation" : 'relu',
+    "kernel_size" : 1,
+    "n_strides" :1,
+    "kernel_initializer" : 'he_normal',
+    "batch_norm": True,
+    "padding": "SAME",
+    "kernel_regularizer" : 1e-6,
+    "emb_layer" : 'GlobalAveragePooling1D',
+    "loss": "mse", #huber was working great for 2020 and 2021
+    "enumerate" : True,
+    "metrics": "r_square"
+}
+############################################
+# Model configuration CNN 2019
+model_cfg_cnn_2019 = {
+    "learning_rate": 10e-5,
+    "keep_prob" : 0.5, #should keep 0.8
+    "nb_conv_filters": 64, #wiorks great with 32
+    "nb_conv_stacks": 3,  # Nb Conv layers
+    "nb_fc_neurons" : 128,
+    "nb_fc_stacks": 1, #Nb FCN layers
+    "fc_activation" : 'relu',
+    "kernel_size" : 1,
+    "n_strides" :1,
+    "kernel_initializer" : 'he_normal',
+    "batch_norm": True,
+    "padding": "CAUSAL",
+    "kernel_regularizer" : 1e-6,
+    "emb_layer" : 'GlobalAveragePooling1D',
+    "loss": "mse", #huber was working great for 2020 and 2021
+    "enumerate" : True,
+    "metrics": "r_square"
+}
+#MODEL 64 128 with drop out 0.5 works great on 2019
+model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_2019)
+# Prepare the model (must be run before training)
+model_cnn.prepare()
+
+model_cnn.train_and_evaluate(
+    train_dataset=(x_train, y_train),
+    val_dataset=(x_test, y_test),
+    num_epochs=500,
+    save_steps=5,
+    batch_size = 8,
+    function = np.min,
+    shift_step = 0, #3
+    sdev_label =0.1, #0.1
+    feat_noise = 0.2, #0.2
+    patience = 50,
+    forget = True,
+    #pretraining_path ='/home/johann/Documents/model_64_Stride_SAME',
+    model_directory='/home/johann/Documents/model_512',
+)
+'''
+'''
+# Model configuration CNN other years
+model_cfg_cnn = {
+    "learning_rate": 10e-4,
+    "keep_prob" : 0.5, #should keep 0.8
+    "nb_conv_filters": 64, #wiorks great with 32
+    "nb_conv_stacks": 3,  # Nb Conv layers
+    "nb_fc_neurons" : 64,
+    "nb_fc_stacks": 2, #Nb FCN layers
+    "fc_activation" : 'relu',
+    "kernel_size" : 1,
+    "n_strides" :2,
+    "kernel_initializer" : 'he_normal',
+    "batch_norm": True,
+    "padding": "SAME",
+    "kernel_regularizer" : 1e-6,
+    "emb_layer" : 'GlobalAveragePooling1D',
+    "loss": "mse", #huber was working great for 2020 and 2021
+    "enumerate" : True,
+    "metrics": "r_square"
+}
+#MODEL 64 128 with drop out 0.5 works great on 2019
+model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
+# Prepare the model (must be run before training)
+model_cnn.prepare()
+pretraining = False
+cotraining = False
+if pretraining:
+    x_pretrain = np.concatenate([x_train, x_test], axis = 0)
+    model_cnn.pretraining(x_pretrain,
+                          pretraining_path='/home/johann/Documents/model_16_Flatten_SAME',
+                          num_epochs=100, shift=0, lambda_ = 0.1)
+if cotraining:
+    model_cnn.cotraining(train_dataset=(x_train, y_train),
+                         val_dataset=(x_test, y_test),
+                         num_epochs=500,
+                         batch_size = 16,
+                         lambda_=0.8,
+                         patience = 100,
+                         pretraining_path ='/home/johann/Documents/model_16_Flatten_SAME')
+ts=3
+self = model_cnn
+x = x_train
+batch_size = 8
+model_cnn.train_and_evaluate(
+    train_dataset=(x_train, y_train),
+    val_dataset=(x_test, y_test),
+    num_epochs=500,
+    save_steps=5,
+    batch_size = 8,
+    function = np.min,
+    shift_step = 2, #3
+    sdev_label =0.1, #0.1
+    feat_noise = 0.2, #0.2
+    patience = 50,
+    forget = True,
+    #pretraining_path ='/home/johann/Documents/model_16_Flatten_SAME',
+    model_directory='/home/johann/Documents/model_512',
+)
+
+'''
 ########################################################################################################################
 ########################################################################################################################
 
@@ -167,7 +278,7 @@ model_cfg_cnn2d = {
     "nb_fc_neurons" : 2048,
     "nb_fc_stacks": 1, #Nb FCN layers
     "kernel_size" : [1,1],
-    "nb_conv_strides" : [1,1],
+    "n_strides" : [1,1],
     "kernel_initializer" : 'he_normal',
     "batch_norm": True,
     "padding": "VALID",#"VALID", CAUSAL works great?!

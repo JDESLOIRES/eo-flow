@@ -3,7 +3,7 @@ import tensorflow as tf
 from marshmallow import fields
 from marshmallow.validate import OneOf
 
-from tensorflow.keras.layers import  Dense
+from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
@@ -22,13 +22,13 @@ class TCNModel(BaseCustomTempnetsModel):
     """
 
     class TCNModelSchema(BaseTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
 
         kernel_size = fields.Int(missing=2, description='Size of the convolution kernels.')
         nb_filters = fields.Int(missing=64, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=1)
         dilations = fields.List(fields.Int, missing=[1, 2, 4, 8, 16, 32], description='Size of dilations used in the '
-                                                                                      'covolutional layers')
+                                                                                      'covolutional tf.keras.layers')
         padding = fields.String(missing='CAUSAL', validate=OneOf(['CAUSAL', 'SAME']),
                                 description='Padding type used in convolutions.')
         use_skip_connections = fields.Bool(missing=True, description='Flag to whether to use skip connections.')
@@ -124,14 +124,14 @@ class TempCNNModel(BaseCustomTempnetsModel):
     """
 
     class TempCNNModelSchema(BaseCustomTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
-        nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
+        n_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
-        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
+        fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
 
         emb_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
                                   description='Final layer after the convolutions.')
@@ -140,25 +140,37 @@ class TempCNNModel(BaseCustomTempnetsModel):
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
         n_classes = fields.Int(missing=1, description='Number of classes')
         output_activation = fields.String(missing='linear', description='Output activation')
-
+        residual_block = fields.Bool(missing=False, description= 'Add residual block')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
+        str_inc = fields.Bool(missing=False, description='Increase strides')
+        ker_inc = fields.Bool(missing=False, description='Increase kernels')
+        ker_dec = fields.Bool(missing=False, description='Decreae kernels')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
-    def _cnn_layer(self, net, i = 0):
+    def _cnn_layer(self, net, i = 0, first = False):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
         kernel_size = self.config.kernel_size
+        n_strides = self.config.n_strides
 
         if self.config.enumerate:
             filters = filters * (2**i)
+        if self.config.ker_inc:
             kernel_size = kernel_size * (i+1)
+
+        if self.config.ker_dec:
+            kernel_size = self.config.kernel_size // (i+1)
+            if kernel_size ==0: kernel_size += 1
+
+        if self.config.str_inc:
+            n_strides = 1 if first else 2
 
         layer = tf.keras.layers.Conv1D(filters=filters,
                                        kernel_size=kernel_size,
-                                       strides=self.config.nb_conv_strides,
+                                       strides=n_strides,
                                        padding=self.config.padding,
                                        kernel_initializer=self.config.kernel_initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
@@ -167,7 +179,6 @@ class TempCNNModel(BaseCustomTempnetsModel):
 
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
         layer = tf.keras.layers.Activation(self.config.activation)(layer)
-
 
         return layer
 
@@ -206,11 +217,11 @@ class TempCNNModel(BaseCustomTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks)):
-            net = self._cnn_layer(net, i)
+        net = self._cnn_layer(net, 0, first = True)
+        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
+            net = self._cnn_layer(net, i+1)
 
         net = self._embeddings(net)
-        #self.backbone = tf.keras.Model(inputs=x, outputs=net)
 
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(net)
@@ -219,7 +230,15 @@ class TempCNNModel(BaseCustomTempnetsModel):
                     activation = self.config.output_activation,
                     kernel_initializer=self.config.kernel_initializer,
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-
+        '''
+        if self.config.loss in ['gaussian', 'laplace']:
+            output_sigma = Dense(units=self.config.n_classes,
+                                 activation=self.config.output_activation,
+                                 kernel_initializer=self.config.kernel_initializer,
+                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
+        else:
+        '''
         self.net = tf.keras.Model(inputs=x, outputs=net)
 
         print_summary(self.net)
@@ -228,9 +247,9 @@ class TempCNNModel(BaseCustomTempnetsModel):
         return self.net(inputs, training)
 
     def get_feature_map(self):
-        output_layer = self.net.layers[-(self.config.nb_fc_stacks * 4 + 2)]
+        output_layer = self.net.tf.keras.layers[-(self.config.nb_fc_stacks * 4 + 2)]
         return tf.keras.Model(
-            inputs=self.net.layers[0].input, outputs=output_layer.output
+            inputs=self.net.tf.keras.layers[0].input, outputs=output_layer.output
         )
 
 
@@ -244,20 +263,20 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
     """
 
     class HistogramCNNModel(BaseCustomTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
         kernel_size = fields.List(fields.Int, missing=[3,3], description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
         nb_conv_strides = fields.List(fields.Int, missing=[1,1], description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
-        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
         emb_layer = fields.String(missing='Flatten',
                                   validate=OneOf(['Flatten', 'GlobalAveragePooling2D', 'GlobalMaxPooling2D']),
                                   description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
+        fc_activation = fields.Str(missing=None, description='Activation function used in final FC tf.keras.layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
@@ -353,7 +372,200 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
 
 
-class CNNTae(BaseCustomTempnetsModel):
+
+
+class InceptionCNN(BaseCustomTempnetsModel):
+    '''
+    https://github.com/hfawaz/InceptionTime
+    '''
+
+    class InceptionCNN(BaseCustomTempnetsModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
+        nb_conv_filters = fields.Int(missing=32, description='Number of convolutional filters.')
+        nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
+        n_stride = fields.Int(missing=1, description='Value of convolutional strides.')
+        bottleneck_size = fields.Int(missing=32, description='Bottleneck size.')
+        use_residual = fields.Bool(missing=False,description='Use residuals.')
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                description='Padding type used in convolutions.')
+        fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
+        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        use_bottleneck = fields.Bool(missing=True, description='use_bottleneck')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        nb_class = fields.Int(missing=1, description='Number of class.')
+        output_activation = fields.Str(missing='linear', description='Output activation.')
+        n_stride = fields.Int(missing=1, description='Number of strides.')
+
+    def _inception_module(self, input_tensor, stride=1, activation='linear'):
+
+        if self.config.use_bottleneck and int(input_tensor.shape[-1]) > 1:
+            input_inception = tf.keras.layers.Conv1D(filters=self.config.bottleneck_size,
+                                                     kernel_size=1,
+                                                     padding='SAME',
+                                                     activation=activation,
+                                                     use_bias=False)(input_tensor)
+        else:
+            input_inception = input_tensor
+
+        kernel_size_s = [1,2,3]
+        #kernel_size_s = [5 // (2 ** i) for i in range(3)]
+
+        conv_list = [
+            tf.keras.layers.Conv1D(
+                filters=self.config.nb_conv_filters,
+                kernel_size=kernel_size_,
+                strides=stride,
+                padding='SAME',
+                activation=activation,
+                use_bias=False,
+            )(input_inception)
+            for kernel_size_ in kernel_size_s
+        ]
+
+        max_pool_1 = tf.keras.layers.MaxPool1D(pool_size=3, strides=self.config.n_strides, padding='SAME')(input_tensor)
+
+        conv_6 = tf.keras.layers.Conv1D(filters=self.config.nb_conv_filters,
+                                        kernel_size=1,
+                                        padding='SAME',
+                                        activation=activation, use_bias=False)(max_pool_1)
+
+        conv_list.append(conv_6)
+
+        x = tf.keras.layers.Concatenate(axis=2)(conv_list)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dropout(1-self.config.keep_prob)(x)
+        x = tf.keras.layers.Activation(activation='relu')(x)
+        return x
+
+    def _shortcut_layer(self, input_tensor, out_tensor):
+        shortcut_y = tf.keras.layers.Conv1D(filters=int(out_tensor.shape[-1]),
+                                            kernel_size=1,
+                                            padding='SAME', use_bias=False)(input_tensor)
+        shortcut_y = tf.keras.layers.BatchNormalization()(shortcut_y)
+        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob)(shortcut_y)
+        x = tf.keras.layers.Add()([shortcut_y, out_tensor])
+        x = tf.keras.layers.Activation('relu')(x)
+        return x
+
+    def build(self, input_shape):
+        input_layer = tf.keras.layers.Input(input_shape[1:])
+        input_res = input_layer
+        x = input_layer
+
+        for d in range(self.config.nb_conv_stacks):
+
+            x = self._inception_module(x)
+
+            if self.config.use_residual and d % 3 == 2:
+                x = self._shortcut_layer(input_res, x)
+                input_res = x
+
+        gap_layer = tf.keras.layers.GlobalAveragePooling1D()(x)
+
+        output_layer = tf.keras.layers.Dense(self.config.nb_class,
+                                             activation=self.config.output_activation)(gap_layer)
+
+        self.net = tf.keras.models.Model(inputs=input_layer, outputs=output_layer)
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+
+class TransformerCNN(BaseCustomTempnetsModel):
+    """ Implementation of the Pixel-Set encoder + Temporal Attention Encoder sequence classifier
+
+    Code is based on the Pytorch implementation of V. Sainte Fare Garnot et al. https://github.com/VSainteuf/pytorch-psetae
+    """
+
+    class TransformerCNN(BaseCustomTempnetsModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.',
+                                 example=0.5)
+        num_heads = fields.Int(missing=4, description='Number of Attention heads.')
+        head_size = fields.Int(missing=64, description='Size Attention heads.')
+        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
+        num_transformer_blocks = fields.Int(missing=4, description='Number of transformer blocks.')
+        ff_dim = fields.Int(missing=4, description='Number of feed-forward neurons in point-wise CNN.')
+        batch_norm = fields.Bool(missing=False,description='Use batch normalisation.')
+        n_conv = fields.Int(missing=3, description='Number of Attention heads.')
+        d_model = fields.Int(missing=None, description='Depth of model.')
+
+        mlp_units = fields.List(fields.Int, missing=[64], description='Number of units for each layer in mlp.')
+        mlp_dropout = fields.Float(required=True, description='Keep probability used in dropout MLP layers.',
+                                   example=0.5)
+        emb_layer = fields.Str(missing='Flatten', description='Embedding layer.')
+        output_activation = fields.Str(missing='linear', description='Output activation.')
+        n_classes = fields.Int(missing=1, description='# Classes.')
+        n_strides = fields.Int(missing=1, description='# strides.')
+
+    def transformer_encoder(self, inputs):
+        # Normalization and Attention
+        x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(inputs)
+        x = tf.keras.layers.MultiHeadAttention(
+            key_dim=self.config.head_size,
+            num_heads=self.config.num_heads,
+            dropout=1-self.config.keep_prob)(x, x)
+        x = tf.keras.layers.Dropout(1-self.config.keep_prob)(x)
+        res = x + inputs
+
+        # Feed Forward Part
+        x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(res)
+        for _ in range(self.config.n_conv):
+            x = tf.keras.layers.Conv1D(filters=self.config.ff_dim,
+                                       padding='SAME',
+                                       strides=self.config.n_strides,
+                                       kernel_size=self.config.kernel_size)(x)
+            #if self.config.batch_norm: x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(1 - self.config.keep_prob)(x)
+            x = tf.keras.layers.Activation('relu')(x)
+
+        x = tf.keras.layers.Conv1D(padding='SAME',
+                                   filters=inputs.shape[-1],
+                                   kernel_size=1)(x)
+        return x, res
+
+    def _embeddings(self,net):
+
+        name = "embedding"
+        if self.config.emb_layer == 'Flatten':
+            net = tf.keras.layers.Flatten(name=name)(net)
+        elif self.config.emb_layer == 'GlobalAveragePooling1D':
+            net = tf.keras.layers.GlobalAveragePooling1D(name=name,data_format="channels_first")(net)
+        elif self.config.emb_layer == 'GlobalMaxPooling1D':
+            net = tf.keras.layers.GlobalMaxPooling1D(name=name,data_format="channels_first")(net)
+        return net
+    
+    def build(self, inputs_shape):
+        input_layer = tf.keras.layers.Input(inputs_shape[1:])
+        x = input_layer
+        for _ in range(self.config.num_transformer_blocks):
+            lay, res = self.transformer_encoder(x)
+            x = tf.keras.layers.Add()([lay, res])
+            x = tf.keras.layers.Activation('relu')(x)
+
+        x = self._embeddings(x)
+
+        for dim in self.config.mlp_units:
+            x = tf.keras.layers.Dense(dim, activation="relu")(x)
+            if self.config.batch_norm:
+                x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(self.config.mlp_dropout)(x)
+            x = tf.keras.layers.Activation('relu')(x)
+
+        outputs = tf.keras.layers.Dense(self.config.n_classes, activation=self.config.output_activation)(x)
+        self.net = tf.keras.models.Model(inputs=input_layer, outputs=outputs)
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+class CNNTaeSchema(BaseCustomTempnetsModel):
     """ Implementation of the Pixel-Set encoder + Temporal Attention Encoder sequence classifier
 
     Code is based on the Pytorch implementation of V. Sainte Fare Garnot et al. https://github.com/VSainteuf/pytorch-psetae
@@ -375,12 +587,12 @@ class CNNTae(BaseCustomTempnetsModel):
         #   * spatial encoder extra features (hand-made)
         #   * spatial encoder masking
 
-        self.spatial_encoder = pse_tae_layers.PixelSetEncoder(
+        self.spatial_encoder = pse_tae_tf.keras.layers.PixelSetEncoder(
             mlp1=self.config.mlp1,
             mlp2=self.config.mlp2,
             pooling=self.config.pooling)
 
-        self.temporal_encoder = pse_tae_layers.TemporalAttentionEncoder(
+        self.temporal_encoder = pse_tae_tf.keras.layers.TemporalAttentionEncoder(
             n_head=self.config.num_heads,
             d_k=self.config.num_dff,
             d_model=self.config.d_model,
@@ -389,11 +601,11 @@ class CNNTae(BaseCustomTempnetsModel):
             T=self.config.T,
             len_max_seq=self.config.len_max_seq)
 
-        mlp4_layers = [pse_tae_layers.LinearLayer(out_dim) for out_dim in self.config.mlp4]
+        mlp4_tf.keras.layers = [pse_tae_tf.keras.layers.LinearLayer(out_dim) for out_dim in self.config.mlp4]
         # Final layer (logits)
-        mlp4_layers.append(pse_tae_layers.LinearLayer(1, batch_norm=False, activation='linear'))
+        mlp4_tf.keras.layers.append(pse_tae_tf.keras.layers.LinearLayer(1, batch_norm=False, activation='linear'))
 
-        self.mlp4 = tf.keras.Sequential(mlp4_layers)
+        self.mlp4 = tf.keras.Sequential(mlp4_tf.keras.layers)
 
     def call(self, inputs, training=None, mask=None):
 

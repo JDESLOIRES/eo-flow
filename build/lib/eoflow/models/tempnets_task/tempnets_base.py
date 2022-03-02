@@ -8,7 +8,7 @@ from marshmallow.validate import OneOf, ContainsOnly
 from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining
 import tensorflow as tensorflow
 
-from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, PearsonR, CosineSim
+from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
 from eoflow.models.metrics import InitializableMetric, RSquared
 
 
@@ -25,7 +25,9 @@ dictionary_losses = {
     'focal_loss': CategoricalFocalLoss,
     'kl' : tf.keras.losses.KLDivergence,
     'pearson':  PearsonR,
-    'cosine' : CosineSim
+    'cosine' : CosineSim,
+    'gaussian': GaussianNLL,
+    'laplace': LaplacianNLL
 }
 
 # Available metrics. Add keys with new metrics here.
@@ -69,7 +71,7 @@ class BaseTempnetsModel(BaseModelTraining):
         if metrics is None:
             metrics = self.config.metric
 
-        loss = dictionary_losses[loss](**kwargs)
+        loss = dictionary_losses[loss](reduction=tf.keras.losses.Reduction.NONE)
 
         reported_metrics = []
         for metric in metrics:
@@ -146,7 +148,7 @@ class BaseCustomTempnetsModel(BaseModelCoTraining):
 
         if loss is None:
             loss = self.config.loss
-        loss = dictionary_losses[loss](**kwargs)
+        loss = dictionary_losses[loss](reduction=tf.keras.losses.Reduction.NONE)
         self.loss_metric = loss_metric
 
         if metrics is None:

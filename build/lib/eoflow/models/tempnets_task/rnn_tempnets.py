@@ -156,7 +156,7 @@ class ConvLSTM(BaseCustomTempnetsModel):
 
         layer = tf.keras.layers.Conv1D(filters=filters,
                                        kernel_size=kernel_size,
-                                       strides=self.config.nb_conv_strides,
+                                       strides=self.config.n_strides,
                                        padding=self.config.padding,
                                        kernel_initializer=self.config.kernel_initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)

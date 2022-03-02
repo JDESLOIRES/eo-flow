@@ -2,6 +2,52 @@ import tensorflow as tf
 from tensorflow.keras.losses import Loss, Reduction
 
 
+class GaussianNLL(Loss):
+    """
+    Gaussian negative log likelihood to fit the mean and variance to p(y|x)
+    Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
+    Furthermore, the constant log term is discarded.
+    """
+    def __init__(self, reduction=Reduction.AUTO, name='Gaussian NLL'):
+        super().__init__(reduction=reduction, name=name)
+        self.eps = 1e-8
+
+    def __call__(self, prediction, log_variance, target):
+        """
+        This function expects the log(var) to guarantee a positive variance with var = exp(log(var)).
+        :param prediction: Predicted mean values
+        :param log_variance: Predicted log(variance)
+        :param target: Ground truth labels
+        :return: gaussian negative log likelihood
+        """
+        # add a small constant to the variance for numeric stability
+        variance = tf.math.exp(log_variance) + self.eps
+        return 0.5 / variance * (prediction - target)**2 + 0.5 * tf.math.log(variance)
+
+
+class LaplacianNLL(Loss):
+    """
+    Laplacian negative log likelihood to fit the mean and variance to p(y|x)
+    Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
+    Furthermore, the constant log term is discarded.
+    """
+    def __init__(self, reduction=Reduction.AUTO, name='Laplace NLL'):
+        super().__init__(reduction=reduction, name=name)
+        self.eps = 1e-8
+
+    def __call__(self, prediction, log_variance, target):
+        """
+        This function expects the log(var) to guarantee a positive variance with var = exp(log(var)).
+        :param prediction: Predicted mean values
+        :param log_variance: Predicted log(variance)
+        :param target: Ground truth labels
+        :return: gaussian negative log likelihood
+        """
+        # add a small constant to the variance for numeric stability
+        variance = tf.math.exp(log_variance) + self.eps
+        return 1 / variance * tf.math.abs(prediction - target) + tf.math.log(variance)
+
+
 def cropped_loss(loss_fn):
     """ Wraps loss function. Crops the labels to match the logits size. """
 

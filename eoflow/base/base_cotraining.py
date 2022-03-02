@@ -28,33 +28,38 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         model.loss_metric = tf.keras.metrics.Mean()
         return model
 
-    def _init_model_pretrain(self, x, shift):
+    def _init_model_pretrain(self, x, shift, noise):
 
         top_model = self.layers[0].layers[-2].output
         output_layer = Dense(units = x.shape[-1] * x.shape[-2])(top_model)
         output_layer_shift = Dense(units=1)(top_model)
-        if shift:
+
+        if noise and shift:
             model = tf.keras.Model(inputs=self.layers[0].input, outputs=[output_layer, output_layer_shift])
-        else:
+        elif noise :
             model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer)
+        elif shift:
+            model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer_shift)
+
         print(model.summary())
         return model
 
     def pretraining(self,  x, pretraining_path,
                     batch_size=8, num_epochs=100,
                     loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE),
-                    shift = 5, lambda_ = 1):
+                    shift = 5, noise = 0.5, lambda_ = 1):
 
         _ = self(tf.zeros(list(x.shape)))
         n_layers = len(self.layers[0].layers)
-        model = self._init_model_pretrain(x, shift)
+        model = self._init_model_pretrain(x, shift, noise)
 
         for epoch in range(num_epochs):
             x = shuffle(x)
-            ts_masking, mask = feature_noise(x, value=0.5, proba=0.15)
+            ts_masking, mask = feature_noise(x, value=noise, proba=0.15)
 
             if shift:
-                ts_masking, shift_arr, mask_sh = timeshift(ts_masking, shift)
+                ts_masking, shift_arr, mask_sh = timeshift(ts_masking, shift, proba=0.15)
+                shift_arr /= np.max(shift_arr)
             else:
                 mask_sh, shift_arr = list(np.random.random(ts_masking.shape[0])), list(np.random.random(ts_masking.shape[0]).astype(int))
 
@@ -64,17 +69,29 @@ class BaseModelCoTraining(BaseModelCustomTraining):
             for x_batch, ts_masking_batch, mask_batch, shift_batch, mask_sh_batch in train_ds:  # tqdm
                 n, t, d = x_batch.shape
                 with tf.GradientTape() as tape:
-                    if shift:
+                    if shift and noise:
                         x_preds, aux_preds = model.call(ts_masking_batch, training=True)
-                    else:
+                        x_preds = tf.reshape(x_preds, (n, t, d))
+                    elif shift:
+                        aux_preds = model.call(x_batch, training=True)
+                    elif noise:
                         x_preds = model.call(ts_masking_batch, training=True)
+                        x_preds = tf.reshape(x_preds,(n, t, d))
 
-                    x_preds = tf.reshape(x_preds,(n, t, d))
+                    if noise:
+                        cost_noise = tf.multiply(loss(x_batch, x_preds), mask_batch)
+                        cost_noise = tf.reduce_mean(cost_noise)
 
-                    cost = tf.multiply(loss(x_batch, x_preds), mask_batch)
-                    cost = tf.reduce_mean(cost)
                     if shift:
-                        cost += lambda_ * tf.reduce_mean(tf.multiply(loss(shift_batch, aux_preds), mask_sh_batch))
+                        cost_shift = tf.reduce_mean(tf.multiply(loss(shift_batch, aux_preds), mask_sh_batch))
+
+                    if shift and noise:
+                        cost = cost_noise + lambda_ * cost_shift
+                    elif shift:
+                        cost = cost_shift
+                    elif noise:
+                        cost = cost_noise
+
                 grads = tape.gradient(cost, model.trainable_weights)
                 self.optimizer.apply_gradients(zip(grads, model.trainable_weights))
                 self.loss_metric.update_state(cost)
@@ -96,10 +113,10 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         cost = tf.reduce_mean(cost[:(int(len(cost) * forget_rate))])
         return cost
 
-    def _cotrain_step(self, model, x_batch, y_batch, y_preds_2, lambda_, forget_rate, kl_loss = tf.keras.losses.KLDivergence(reduction=tf.keras.losses.Reduction.NONE)):
+    def _cotrain_step(self, model, x_batch, y_batch, y_preds_2, lambda_, forget_rate, div_loss = tf.keras.losses.KLDivergence(reduction=tf.keras.losses.Reduction.NONE)):
         with tf.GradientTape() as tape:
             y_preds_1 = model.call(x_batch, training=True)
-            jcor = (kl_loss(y_preds_2, y_preds_1) + kl_loss(y_preds_1, y_preds_2)) / 2
+            jcor = (div_loss(y_preds_2, y_preds_1) + div_loss(y_preds_1, y_preds_2)) / 2
             cost_1 = self._cost_cotraining(y_batch, y_preds_1, jcor, lambda_, forget_rate)
 
         grads = tape.gradient(cost_1, model.trainable_weights)
@@ -111,7 +128,7 @@ class BaseModelCoTraining(BaseModelCustomTraining):
 
     def cotraining(self, train_dataset, val_dataset,
                    num_epochs, pretraining_path,
-                   batch_size=8,forget_rate = 0.9,
+                   batch_size=8, forget_rate = 0.9,
                    lambda_ = 0.5, patience =  50,
                    function=np.min):
 
@@ -123,7 +140,7 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         y_val = y_val.astype('float32')
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
         if pretraining_path:
-            self._init_weights_pretrained(pretraining_path, patience=0)
+            self._init_weights_pretrained(pretraining_path)
         model = self._clone_model(x_train)
 
         forget_rate_ = 1
@@ -156,11 +173,8 @@ class BaseModelCoTraining(BaseModelCustomTraining):
             model.loss_metric.reset_states()
 
             if epoch%5==0:
-                self.val_step(val_ds)
-                val_acc_result = self.metric.result().numpy()
+                val_loss_epoch, val_acc_result = self.val_step(val_ds)
                 print(
                     "Epoch {0}: Train loss {1}, Val acc {2}".format(
                         str(epoch), str(loss_epoch), str(round(val_acc_result, 4)),
                     ))
-                self.metric.reset_states()
-                self.loss_metric.reset_states()

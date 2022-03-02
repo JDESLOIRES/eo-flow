@@ -48,28 +48,68 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def train_step(self,
-                   train_ds):
+                   train_ds,
+                   n_forget = 0,
+                   size_batch = 8):
+
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
-                y_preds = self.call(x_batch_train,
-                                    training=True)
+                y_preds = self.call(x_batch_train, training=True)
                 cost = self.loss(y_batch_train, y_preds)
+                '''
+                if self.config.loss not in ['gaussian', 'laplace']:
+                    y_preds = self.call(x_batch_train, training=True)
+                    cost = self.loss(y_batch_train, y_preds)
+                else:
+                    mu_, sigma_ = self.call(x_batch_train, training=True)
+                    cost = self.loss(mu_, sigma_, y_batch_train)
+                '''
+
+                cost = tf.sort(cost, direction='DESCENDING')
+
+                if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
+                    cost = cost[n_forget:]
+                cost = tf.reduce_mean(cost)
 
             grads = tape.gradient(cost, self.trainable_variables)
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
+            #signed_grad = tf.sign(grads)
             with tf.control_dependencies([opt_op]):
                 self.ema.apply(self.trainable_variables)
+            #return signed_grad
 
-    # Function to run the validation step.
-    @tf.function
+
     def val_step(self, val_ds):
         for x, y in val_ds:
-            y_preds = self.call(x, training=False)
+            y_preds = self.call(x, training=True)
             cost = self.loss(y, y_preds)
+
+            '''
+            if self.config.loss not in ['gaussian', 'laplace']:
+                y_preds = self.call(x, training=True)
+                cost = self.loss(y, y_preds)
+            else:
+                y_preds, sigma_ = self.call(x, training=True)
+                sigma_ = tf.clip_by_value(t=tf.exp(sigma_),
+                                          clip_value_min=tf.constant(1E-2),
+                                          clip_value_max=tf.constant(0.8))
+
+                cost = self.loss(y_preds, sigma_, y)
+            '''
+
+            cost = tf.reduce_mean(cost)
             self.loss_metric.update_state(cost)
             self.metric.update_state(y, y_preds)
+
+        val_loss_epoch = self.loss_metric.result().numpy()
+        val_acc_result = self.metric.result().numpy()
+
+        self.loss_metric.reset_states()
+        self.metric.reset_states()
+
+        return val_loss_epoch, val_acc_result
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,
@@ -90,19 +130,18 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         for i in range(n_layers-n_outputs):
             self.layers[0].layers[i].trainable = bool
 
-
-    def _init_weights_pretrained(self, model_directory, patience=0):
+    def _init_weights_pretrained(self, model_directory, finetuning=False):
         self.load_weights(os.path.join(model_directory, 'pretrained_model'))
-        if patience:
+        if finetuning:
             self._set_trainable(False)
 
     def _allow_training(self):
         self._set_trainable(True)
 
-
     def fit(self,
             train_dataset,
             val_dataset,
+            test_dataset,
             batch_size,
             num_epochs,
             model_directory,
@@ -110,9 +149,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             shift_step=0,
             feat_noise=0,
             sdev_label=0,
-            reduce_lr = False,
             pretraining_path = None,
             patience = 30,
+            finetuning = False,
+            reduce_lr = False,
+            forget = 0,
             function=np.min):
 
         global val_acc_result
@@ -122,62 +163,68 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         y_train = y_train.astype('float32')
         x_val, y_val = val_dataset
         y_val = y_val.astype('float32')
+        x_test, y_test = test_dataset
+        y_test = y_test.astype('float32')
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
 
-        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience*2)
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
         wait = 0
+        n_forget = 0
 
         _ = self(tf.zeros([k for k in x_train.shape]))
 
         if pretraining_path:
-            self._init_weights_pretrained(pretraining_path, patience)
+            self._init_weights_pretrained(pretraining_path, finetuning)
             for var in self.optimizer.variables():
                 var.assign(tf.zeros_like(var))
 
         for epoch in range(num_epochs + 1):
-
             x_train_, y_train_ = shuffle(x_train, y_train)
-            x_train_, y_train_ = data_augmentation(x_train_, y_train_,
-                                                   shift_step, feat_noise, sdev_label)
+            if patience and epoch >= patience:
+                if forget and feat_noise:
+                    n_forget = forget
+
+                x_train_, y_train_ = data_augmentation(x_train_, y_train_,
+                                                       shift_step, feat_noise,
+                                                       sdev_label)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
-            self.train_step(train_ds)
+            self.train_step(train_ds, n_forget, batch_size)
 
             # End epoch
             loss_epoch = self.loss_metric.result().numpy()
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
 
-            if patience and epoch == patience and pretraining_path:
+            if patience and epoch == patience and pretraining_path and finetuning:
                 self._allow_training()
 
             if epoch % save_steps == 0:
-                self.val_step(val_ds)
-                val_loss_epoch = self.loss_metric.result().numpy()
-                val_acc_result = self.metric.result().numpy()
-                print(
-                    "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}".format(
-                        str(epoch), str(loss_epoch), str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
-                    ))
+                wait +=1
+                val_loss_epoch, val_acc_result = self.val_step(val_ds)
+                val_loss.append(val_loss_epoch)
+                val_acc.append(val_acc_result)
+                #####################################################
+                test_loss_epoch, test_acc_result = self.val_step(test_ds)
 
-                wait += 1
+                print(
+                    "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}, Test loss {4}, Test acc {5}".format(
+                        str(epoch), str(loss_epoch),
+                        str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
+                        str(round(test_loss_epoch, 4)), str(round(test_acc_result, 4)),
+                    ))
 
                 if (function is np.min and val_loss_epoch < function(val_loss)
                         or function is np.max and val_loss_epoch > function(val_loss)):
 
-                    wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.save_weights(os.path.join(model_directory, 'best_model'))
+                if reduce_lr:
+                    reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
 
-                val_loss.append(val_loss_epoch)
-                val_acc.append(val_acc_result)
-                self.loss_metric.reset_states()
-                self.metric.reset_states()
-
-            if reduce_lr:
-                reduce_rl_plateau.on_epoch_end(epoch, val_acc_result)
 
         self.save_weights(os.path.join(model_directory, 'last_model'))
 
