@@ -57,6 +57,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             with tf.GradientTape() as tape:
                 y_preds = self.call(x_batch_train, training=True)
                 cost = self.loss(y_batch_train, y_preds)
+
                 '''
                 if self.config.loss not in ['gaussian', 'laplace']:
                     y_preds = self.call(x_batch_train, training=True)
@@ -67,7 +68,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 '''
 
                 cost = tf.sort(cost, direction='DESCENDING')
-
                 if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
                     cost = cost[n_forget:]
                 cost = tf.reduce_mean(cost)
