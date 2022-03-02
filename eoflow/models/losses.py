@@ -8,7 +8,7 @@ class GaussianNLL(Loss):
     Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
     Furthermore, the constant log term is discarded.
     """
-    def __init__(self, reduction=Reduction.AUTO, name='Gaussian NLL'):
+    def __init__(self, reduction=Reduction.AUTO, name='GaussianNLL'):
         super().__init__(reduction=reduction, name=name)
         self.eps = 1e-8
 
@@ -31,7 +31,7 @@ class LaplacianNLL(Loss):
     Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
     Furthermore, the constant log term is discarded.
     """
-    def __init__(self, reduction=Reduction.AUTO, name='Laplace NLL'):
+    def __init__(self, reduction=Reduction.AUTO, name='LaplacianNLL'):
         super().__init__(reduction=reduction, name=name)
         self.eps = 1e-8
 

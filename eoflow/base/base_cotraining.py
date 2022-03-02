@@ -79,8 +79,7 @@ class BaseModelCoTraining(BaseModelCustomTraining):
                         x_preds = tf.reshape(x_preds,(n, t, d))
 
                     if noise:
-                        cost_noise = tf.multiply(loss(x_batch, x_preds), mask_batch)
-                        cost_noise = tf.reduce_mean(cost_noise)
+                        cost_noise = tf.reduce_mean(tf.multiply(loss(x_batch, x_preds), mask_batch))
 
                     if shift:
                         cost_shift = tf.reduce_mean(tf.multiply(loss(shift_batch, aux_preds), mask_sh_batch))

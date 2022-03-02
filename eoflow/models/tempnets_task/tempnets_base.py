@@ -27,7 +27,7 @@ dictionary_losses = {
     'pearson':  PearsonR,
     'cosine' : CosineSim,
     'gaussian': GaussianNLL,
-    'laplace': LaplacianNLL
+    'laplacian': LaplacianNLL
 }
 
 # Available metrics. Add keys with new metrics here.

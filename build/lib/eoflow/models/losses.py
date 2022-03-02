@@ -12,7 +12,7 @@ class GaussianNLL(Loss):
         super().__init__(reduction=reduction, name=name)
         self.eps = 1e-8
 
-    def __call__(self, prediction, log_variance, target):
+    def call(self, prediction, log_variance, target):
         """
         This function expects the log(var) to guarantee a positive variance with var = exp(log(var)).
         :param prediction: Predicted mean values
@@ -35,7 +35,7 @@ class LaplacianNLL(Loss):
         super().__init__(reduction=reduction, name=name)
         self.eps = 1e-8
 
-    def __call__(self, prediction, log_variance, target):
+    def call(self, prediction, log_variance, target):
         """
         This function expects the log(var) to guarantee a positive variance with var = exp(log(var)).
         :param prediction: Predicted mean values

@@ -55,17 +55,12 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
-                y_preds = self.call(x_batch_train, training=True)
-                cost = self.loss(y_batch_train, y_preds)
-
-                '''
-                if self.config.loss not in ['gaussian', 'laplace']:
+                if self.config.loss not in ['gaussian', 'laplacian']:
                     y_preds = self.call(x_batch_train, training=True)
                     cost = self.loss(y_batch_train, y_preds)
                 else:
                     mu_, sigma_ = self.call(x_batch_train, training=True)
                     cost = self.loss(mu_, sigma_, y_batch_train)
-                '''
 
                 cost = tf.sort(cost, direction='DESCENDING')
                 if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
@@ -81,35 +76,17 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             #return signed_grad
 
 
+    @tf.function
     def val_step(self, val_ds):
-        for x, y in val_ds:
-            y_preds = self.call(x, training=True)
-            cost = self.loss(y, y_preds)
-
-            '''
-            if self.config.loss not in ['gaussian', 'laplace']:
-                y_preds = self.call(x, training=True)
-                cost = self.loss(y, y_preds)
+        for x_batch_train, y_batch_train in val_ds:
+            if self.config.loss not in ['gaussian', 'laplacian']:
+                y_preds = self.call(x_batch_train, training=False)
+                cost = self.loss(y_batch_train, y_preds)
             else:
-                y_preds, sigma_ = self.call(x, training=True)
-                sigma_ = tf.clip_by_value(t=tf.exp(sigma_),
-                                          clip_value_min=tf.constant(1E-2),
-                                          clip_value_max=tf.constant(0.8))
-
-                cost = self.loss(y_preds, sigma_, y)
-            '''
-
-            cost = tf.reduce_mean(cost)
+                y_preds, sigma_ = self.call(x_batch_train, training=False)
+                cost = self.loss(y_preds, sigma_, y_batch_train)
             self.loss_metric.update_state(cost)
-            self.metric.update_state(y, y_preds)
-
-        val_loss_epoch = self.loss_metric.result().numpy()
-        val_acc_result = self.metric.result().numpy()
-
-        self.loss_metric.reset_states()
-        self.metric.reset_states()
-
-        return val_loss_epoch, val_acc_result
+            self.metric.update_state(y_batch_train, y_preds)
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,
@@ -204,11 +181,16 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
             if epoch % save_steps == 0:
                 wait +=1
-                val_loss_epoch, val_acc_result = self.val_step(val_ds)
-                val_loss.append(val_loss_epoch)
-                val_acc.append(val_acc_result)
-                #####################################################
-                test_loss_epoch, test_acc_result = self.val_step(test_ds)
+                self.val_step(val_ds)
+                val_loss_epoch = self.loss_metric.result().numpy()
+                val_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
+                self.val_step(test_ds)
+                test_loss_epoch = self.loss_metric.result().numpy()
+                test_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
 
                 print(
                     "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}, Test loss {4}, Test acc {5}".format(
@@ -219,12 +201,14 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
                 if (function is np.min and val_loss_epoch < function(val_loss)
                         or function is np.max and val_loss_epoch > function(val_loss)):
-
+                    #wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.save_weights(os.path.join(model_directory, 'best_model'))
                 if reduce_lr:
                     reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
 
+                val_loss.append(val_loss_epoch)
+                val_acc.append(val_acc_result)
 
         self.save_weights(os.path.join(model_directory, 'last_model'))
 

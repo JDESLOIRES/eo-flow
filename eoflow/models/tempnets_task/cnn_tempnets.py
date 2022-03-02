@@ -226,20 +226,19 @@ class TempCNNModel(BaseCustomTempnetsModel):
         for _ in range(self.config.nb_fc_stacks):
             net = self._fcn_layer(net)
 
-        net = Dense(units = self.config.n_classes,
+        output = Dense(units = self.config.n_classes,
                     activation = self.config.output_activation,
                     kernel_initializer=self.config.kernel_initializer,
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-        '''
-        if self.config.loss in ['gaussian', 'laplace']:
+
+        if self.config.loss in ['gaussian', 'laplacian']:
             output_sigma = Dense(units=self.config.n_classes,
                                  activation=self.config.output_activation,
                                  kernel_initializer=self.config.kernel_initializer,
                                  kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
             self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
         else:
-        '''
-        self.net = tf.keras.Model(inputs=x, outputs=net)
+            self.net = tf.keras.Model(inputs=x, outputs=output)
 
         print_summary(self.net)
 
