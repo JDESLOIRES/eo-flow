@@ -33,6 +33,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def call(self, inputs, training=False):
         pass
 
+
     def prepare(self,
                 optimizer=None, loss=None, metrics=None,
                 epoch_loss_metric=None,
@@ -67,7 +68,16 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                     cost = cost[n_forget:]
                 cost = tf.reduce_mean(cost)
 
+
             grads = tape.gradient(cost, self.trainable_variables)
+            '''
+            vars_list =  tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES,
+                                                     scope="network")
+            grad_list = [(g, v) for g, v in grads if v in vars_list]
+            adv_x = x_batch_train + d
+            plt.plot(d.numpy()[0,:,0])
+            plt.show()
+            '''
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
             #signed_grad = tf.sign(grads)

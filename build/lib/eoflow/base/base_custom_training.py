@@ -33,6 +33,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     def call(self, inputs, training=False):
         pass
 
+
     def prepare(self,
                 optimizer=None, loss=None, metrics=None,
                 epoch_loss_metric=None,
@@ -55,24 +56,28 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         # pb_i = Progbar(len(list(train_ds)), stateful_metrics='acc')
         for x_batch_train, y_batch_train in train_ds:  # tqdm
             with tf.GradientTape() as tape:
-                y_preds = self.call(x_batch_train, training=True)
-                cost = self.loss(y_batch_train, y_preds)
-
-                '''
-                if self.config.loss not in ['gaussian', 'laplace']:
+                if self.config.loss not in ['gaussian', 'laplacian']:
                     y_preds = self.call(x_batch_train, training=True)
                     cost = self.loss(y_batch_train, y_preds)
                 else:
                     mu_, sigma_ = self.call(x_batch_train, training=True)
                     cost = self.loss(mu_, sigma_, y_batch_train)
-                '''
 
                 cost = tf.sort(cost, direction='DESCENDING')
                 if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
                     cost = cost[n_forget:]
                 cost = tf.reduce_mean(cost)
 
+
             grads = tape.gradient(cost, self.trainable_variables)
+            '''
+            vars_list =  tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES,
+                                                     scope="network")
+            grad_list = [(g, v) for g, v in grads if v in vars_list]
+            adv_x = x_batch_train + d
+            plt.plot(d.numpy()[0,:,0])
+            plt.show()
+            '''
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
             self.loss_metric.update_state(cost)
             #signed_grad = tf.sign(grads)
@@ -83,11 +88,15 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
     @tf.function
     def val_step(self, val_ds):
-        for x, y in val_ds:
-            y_preds = self.call(x, training=False)
-            cost = self.loss(y, y_preds)
+        for x_batch_train, y_batch_train in val_ds:
+            if self.config.loss not in ['gaussian', 'laplacian']:
+                y_preds = self.call(x_batch_train, training=False)
+                cost = self.loss(y_batch_train, y_preds)
+            else:
+                y_preds, sigma_ = self.call(x_batch_train, training=False)
+                cost = self.loss(y_preds, sigma_, y_batch_train)
             self.loss_metric.update_state(cost)
-            self.metric.update_state(y, y_preds)
+            self.metric.update_state(y_batch_train, y_preds)
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,

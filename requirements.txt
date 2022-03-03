@@ -6,3 +6,4 @@ numpy
 marshmallow
 matplotlib
 h5py
+tensorflow_probability

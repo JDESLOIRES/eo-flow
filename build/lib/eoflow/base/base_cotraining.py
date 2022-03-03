@@ -172,7 +172,11 @@ class BaseModelCoTraining(BaseModelCustomTraining):
             model.loss_metric.reset_states()
 
             if epoch%5==0:
-                val_loss_epoch, val_acc_result = self.val_step(val_ds)
+                self.val_step(val_ds)
+                test_loss_epoch = self.loss_metric.result().numpy()
+                val_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
                 print(
                     "Epoch {0}: Train loss {1}, Val acc {2}".format(
                         str(epoch), str(loss_epoch), str(round(val_acc_result, 4)),

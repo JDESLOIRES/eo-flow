@@ -8,7 +8,8 @@ from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
 from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
-
+import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 logging.basicConfig(level=logging.INFO,
@@ -146,8 +147,9 @@ class TempCNNModel(BaseCustomTempnetsModel):
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         str_inc = fields.Bool(missing=False, description='Increase strides')
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
-        ker_dec = fields.Bool(missing=False, description='Decreae kernels')
-        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        ker_dec = fields.Bool(missing=False, description='Decrease kernels')
+        fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+        batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
 
     def _cnn_layer(self, net, i = 0, first = False):
 
@@ -193,9 +195,12 @@ class TempCNNModel(BaseCustomTempnetsModel):
             net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
         return net
 
-    def _fcn_layer(self, net):
+    def _fcn_layer(self, net, i=0):
         dropout_rate = 1 - self.config.keep_prob
-        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+        nb_neurons = self.config.nb_fc_neurons
+        if self.config.fc_dec:
+            nb_neurons /= 2**i
+        layer_fcn = Dense(units=nb_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
@@ -221,21 +226,26 @@ class TempCNNModel(BaseCustomTempnetsModel):
         for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
             net = self._cnn_layer(net, i+1)
 
-        net = self._embeddings(net)
+        embedding = self._embeddings(net)
+        net_mean = self._fcn_layer(embedding)
 
-        for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net)
+        for i in range(1, self.config.nb_fc_stacks):
+            net_mean = self._fcn_layer(net_mean, i)
 
         output = Dense(units = self.config.n_classes,
                     activation = self.config.output_activation,
                     kernel_initializer=self.config.kernel_initializer,
-                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_mean)
 
         if self.config.loss in ['gaussian', 'laplacian']:
+            net_std = self._fcn_layer(embedding)
+            for i in range(1, self.config.nb_fc_stacks):
+                net_std = self._fcn_layer(net_std, i)
+
             output_sigma = Dense(units=self.config.n_classes,
                                  activation=self.config.output_activation,
                                  kernel_initializer=self.config.kernel_initializer,
-                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_std)
             self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
         else:
             self.net = tf.keras.Model(inputs=x, outputs=output)
@@ -250,6 +260,147 @@ class TempCNNModel(BaseCustomTempnetsModel):
         return tf.keras.Model(
             inputs=self.net.tf.keras.layers[0].input, outputs=output_layer.output
         )
+
+
+
+
+
+class BayesTempCNNModel(BaseCustomTempnetsModel):
+    """ Implementation of the TempCNN network taken from the temporalCNN implementation
+
+        https://github.com/charlotte-pel/temporalCNN
+    """
+
+    class BayesTempCNNModel(BaseCustomTempnetsModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
+        nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
+        nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
+        n_strides = fields.Int(missing=1, description='Value of convolutional strides.')
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
+        fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
+
+        emb_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+                                  description='Final layer after the convolutions.')
+        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
+                                description='Padding type used in convolutions.')
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        n_classes = fields.Int(missing=1, description='Number of classes')
+        output_activation = fields.String(missing='linear', description='Output activation')
+        residual_block = fields.Bool(missing=False, description= 'Add residual block')
+        activity_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
+        str_inc = fields.Bool(missing=False, description='Increase strides')
+        ker_inc = fields.Bool(missing=False, description='Increase kernels')
+        ker_dec = fields.Bool(missing=False, description='Decreae kernels')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+
+    def _cnn_layer(self, net, i = 0, first = False):
+
+        dropout_rate = 1 - self.config.keep_prob
+        filters = self.config.nb_conv_filters
+        kernel_size = self.config.kernel_size
+        n_strides = self.config.n_strides
+
+        if self.config.enumerate:
+            filters = filters * (2**i)
+        if self.config.ker_inc:
+            kernel_size = kernel_size * (i+1)
+
+        if self.config.ker_dec:
+            kernel_size = self.config.kernel_size // (i+1)
+            if kernel_size ==0: kernel_size += 1
+
+        if self.config.str_inc:
+            n_strides = 1 if first else 2
+
+        layer = tfp.layers.Convolution1DReparameterization(filters=filters,
+                                                kernel_size=kernel_size,
+                                                strides=n_strides,
+                                                activity_regularizer=tf.keras.regularizers.l2(self.config.activity_regularizer),
+                                                padding=self.config.padding)(net)
+        if self.config.batch_norm:
+            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
+
+        layer = tf.keras.layers.Dropout(dropout_rate)(layer)
+        layer = tf.keras.layers.Activation(self.config.activation)(layer)
+
+        return layer
+
+    def _embeddings(self,net):
+
+        name = "embedding"
+        if self.config.emb_layer == 'Flatten':
+            net = tf.keras.layers.Flatten(name=name)(net)
+        elif self.config.emb_layer == 'GlobalAveragePooling1D':
+            net = tf.keras.layers.GlobalAveragePooling1D(name=name)(net)
+        elif self.config.emb_layer == 'GlobalMaxPooling1D':
+            net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
+        return net
+
+    def _fcn_layer(self, net, i=0):
+        dropout_rate = 1 - self.config.keep_prob
+        nb_neurons = self.config.nb_fc_neurons
+
+        if self.config.fc_dec:
+            nb_neurons /= 2**i
+
+        layer_fcn = tfp.layers.DenseReparameterization(units=nb_neurons,
+                                                       activity_regularizer=tf.keras.regularizers.l2(self.config.activity_regularizer))(net)
+        if self.config.batch_norm:
+            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+
+        if self.config.fc_activation:
+            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
+
+        return layer_fcn
+
+
+    def build(self, inputs_shape):
+        """ Build TCN architecture
+
+        The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
+        time-frames, and `D` the number of channels
+        """
+        x = tf.keras.layers.Input(inputs_shape[1:])
+
+        net = x
+        net = self._cnn_layer(net, 0, first = True)
+        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
+            net = self._cnn_layer(net, i+1)
+
+        embedding = self._embeddings(net)
+        net_mean = self._fcn_layer(embedding)
+        net_std = self._fcn_layer(embedding)
+
+        for i in range(1, self.config.nb_fc_stacks):
+            net_mean = self._fcn_layer(net_mean, i)
+
+        output = tfp.layers.DenseReparameterization(units = self.config.n_classes,
+                                                    activity_regularizer=tf.keras.regularizers.l2(
+                                                        self.config.activity_regularizer),
+                                                    activation = self.config.output_activation)(net_mean)
+
+        if self.config.loss in ['gaussian', 'laplacian']:
+            for i in range(1, self.config.nb_fc_stacks):
+                net_std = self._fcn_layer(net_std, i)
+
+            output_sigma = tfp.layers.DenseReparameterization(units=self.config.n_classes,
+                                                   activity_regularizer=tf.keras.regularizers.l2(
+                                                       self.config.activity_regularizer),
+                                                   activation=self.config.output_activation)(net_std)
+            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
+        else:
+            self.net = tf.keras.Model(inputs=x, outputs=output)
+
+        print_summary(self.net)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
 
 
 

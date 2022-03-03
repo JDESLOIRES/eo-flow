@@ -76,10 +76,10 @@ model_cfg_cnn_stride = {
     "padding": "SAME",
     "kernel_regularizer": 1e-6,
     "emb_layer": 'GlobalAveragePooling1D',
-    "loss": "mse",  # huber was working great for 2020 and 2021
     "enumerate": True,
     'str_inc': True,
-    "metrics": "r_square"
+    "metrics": "r_square",
+    "loss": "laplacian"  # huber was working great for 2020 and 2021
 }
 
 
