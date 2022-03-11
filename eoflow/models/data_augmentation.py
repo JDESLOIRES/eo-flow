@@ -13,7 +13,7 @@ def timeshift(x_, value = 4, proba = 0.5): #0.5 before
     for i in range(x.shape[0]):
         prob = random.random()
         if prob<proba:
-            rand_unif = np.random.randint(value) +1
+            rand_unif = np.random.randint(value) + 1
             prob /= proba
             mask[i] = 1
             if prob < 0.5:

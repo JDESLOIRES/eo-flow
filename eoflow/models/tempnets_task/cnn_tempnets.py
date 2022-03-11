@@ -7,10 +7,10 @@ from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt
 import tensorflow as tf
 import tensorflow_probability as tfp
-
+import numpy as np
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -118,14 +118,15 @@ class TCNModel(BaseCustomTempnetsModel):
 
 
 
-class TempCNNModel(BaseCustomTempnetsModel):
+class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
     """ Implementation of the TempCNN network taken from the temporalCNN implementation
 
         https://github.com/charlotte-pel/temporalCNN
     """
 
     class TempCNNModelSchema(BaseCustomTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.',
+                                 example=0.5)
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
@@ -149,6 +150,7 @@ class TempCNNModel(BaseCustomTempnetsModel):
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decrease kernels')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
         batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
 
     def _cnn_layer(self, net, i = 0, first = False):
@@ -233,11 +235,11 @@ class TempCNNModel(BaseCustomTempnetsModel):
             net_mean = self._fcn_layer(net_mean, i)
 
         output = Dense(units = self.config.n_classes,
-                    activation = self.config.output_activation,
-                    kernel_initializer=self.config.kernel_initializer,
-                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_mean)
+                       activation = self.config.output_activation,
+                       kernel_initializer=self.config.kernel_initializer,
+                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_mean)
 
-        if self.config.loss in ['gaussian', 'laplacian']:
+        if self.config.multioutput or self.config.loss in ['gaussian', 'laplacian']:
             net_std = self._fcn_layer(embedding)
             for i in range(1, self.config.nb_fc_stacks):
                 net_std = self._fcn_layer(net_std, i)
@@ -260,8 +262,6 @@ class TempCNNModel(BaseCustomTempnetsModel):
         return tf.keras.Model(
             inputs=self.net.tf.keras.layers[0].input, outputs=output_layer.output
         )
-
-
 
 
 
@@ -292,10 +292,10 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
         activity_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         str_inc = fields.Bool(missing=False, description='Increase strides')
-        ker_inc = fields.Bool(missing=False, description='Increase kernels')
-        ker_dec = fields.Bool(missing=False, description='Decreae kernels')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+        ker_inc = fields.Bool(missing=False, description='Increase kernels')
+        ker_dec = fields.Bool(missing=False, description='Decreae kernels')
 
     def _cnn_layer(self, net, i = 0, first = False):
 
@@ -317,15 +317,15 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
             n_strides = 1 if first else 2
 
         layer = tfp.layers.Convolution1DReparameterization(filters=filters,
-                                                kernel_size=kernel_size,
-                                                strides=n_strides,
-                                                activity_regularizer=tf.keras.regularizers.l2(self.config.activity_regularizer),
-                                                padding=self.config.padding)(net)
+                                                           kernel_size=kernel_size,
+                                                           strides=n_strides,
+                                                           activation = self.config.activation,
+                                                           activity_regularizer=tf.keras.regularizers.l2(self.config.activity_regularizer),
+                                                           padding=self.config.padding)(net)
         if self.config.batch_norm:
-            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
+            layer = tfp.bijectors.BatchNormalization()(layer)
 
         layer = tf.keras.layers.Dropout(dropout_rate)(layer)
-        layer = tf.keras.layers.Activation(self.config.activation)(layer)
 
         return layer
 
@@ -345,17 +345,17 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
         nb_neurons = self.config.nb_fc_neurons
 
         if self.config.fc_dec:
-            nb_neurons /= 2**i
+            nb_neurons //= 2**i
 
         layer_fcn = tfp.layers.DenseReparameterization(units=nb_neurons,
+                                                       activation=self.config.activation,
                                                        activity_regularizer=tf.keras.regularizers.l2(self.config.activity_regularizer))(net)
         if self.config.batch_norm:
-            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+            layer_fcn = tfp.bijectors.BatchNormalization()(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
 
-        if self.config.fc_activation:
-            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
+        #if self.config.fc_activation: layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
 
@@ -417,7 +417,7 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         kernel_size = fields.List(fields.Int, missing=[3,3], description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
-        nb_conv_strides = fields.List(fields.Int, missing=[1,1], description='Value of convolutional strides.')
+        n_strides = fields.List(fields.Int, missing=[1, 1], description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
         emb_layer = fields.String(missing='Flatten',
@@ -426,24 +426,37 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC tf.keras.layers.')
+        fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+        ker_inc = fields.Bool(missing=False, description='Increase kernels')
+        ker_dec = fields.Bool(missing=False, description='Decrease kernels')
 
     def _cnn_layer(self, net, i = 1, last = False):
 
         dropout_rate = 1 - self.config.keep_prob
         filters = self.config.nb_conv_filters
+        kernel_size = np.array(self.config.kernel_size)
+        n_strides = self.config.n_strides
 
         if self.config.enumerate:
             filters = filters * (2**i)
-            strides = 1 if not last else 2
+            n_strides = 1 if not last else 2
+
+        if self.config.ker_inc:
+            kernel_size = kernel_size * (i+1)
+
+        if self.config.ker_dec:
+            kernel_size = kernel_size // (i+1)
+            if kernel_size[0] == 0:
+                kernel_size += 1
 
         layer = tf.keras.layers.Conv2D(filters=filters,
-                                       kernel_size=self.config.kernel_size,
-                                       strides=strides,
+                                       kernel_size=list(kernel_size),
+                                       strides=n_strides,
                                        padding=self.config.padding,
                                        kernel_initializer=self.config.kernel_initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
@@ -495,8 +508,8 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
             net = self._cnn_layer(net, i)
             net = self._cnn_layer(net, i, True)
 
-        net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
-        net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
+        #net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
+        #net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
         net = self._cnn_layer(net, self.config.nb_conv_stacks-1, True)
 
         net = self._embeddings(net)

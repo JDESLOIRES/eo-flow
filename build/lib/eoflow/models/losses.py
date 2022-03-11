@@ -32,7 +32,7 @@ class GaussianNLL(Loss):
     """
     def __init__(self, reduction=Reduction.AUTO, name='GaussianNLL'):
         super().__init__(reduction=reduction, name=name)
-        #self.eps = 1e-8
+        self.eps = 1e-8
 
     def __call__(self, prediction, log_variance, target):
         """
@@ -43,11 +43,12 @@ class GaussianNLL(Loss):
         :return: gaussian negative log likelihood
         """
         # add a small constant to the variance for numeric stability
-        variance = tf.math.exp(log_variance)
+        variance = tf.math.exp(log_variance) #+ self.eps
         variance = tf.clip_by_value(t=variance,
-                                    clip_value_min=tf.constant(1e-4),
+                                    clip_value_min=tf.constant(1e-6),
                                     clip_value_max=tf.constant(10.0))
         return 0.5 / variance * (prediction - target)**2 + 0.5 * tf.math.log(variance)
+
 
 
 class LaplacianNLL(Loss):
@@ -71,9 +72,9 @@ class LaplacianNLL(Loss):
         # add a small constant to the variance for numeric stability
         variance = tf.math.exp(log_variance)
         variance = tf.clip_by_value(t=variance,
-                                    clip_value_min=tf.constant(0.01),
-                                    clip_value_max=tf.constant(0.25))
-        return 1 / variance * tf.math.abs(prediction - target) + tf.math.log(variance)
+                                    clip_value_min=tf.constant(1e-6),
+                                    clip_value_max=tf.constant(10.0))
+        return 1 / variance * tf.math.abs(prediction - target) + log_variance
 
 
 def cropped_loss(loss_fn):

@@ -34,7 +34,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2020'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -63,12 +63,12 @@ r2_score(y_test, preds)
 model_cfg_cnn_stride = {
     "learning_rate": 10e-4,
     "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 64, #wiorks great with 32
+    "nb_conv_filters": 32, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
     "nb_fc_neurons" : 64,
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
-    "kernel_size" : 3,
+    "kernel_size" : 7,
     "n_strides" :1,
     "padding": "SAME",
     "emb_layer" : 'GlobalAveragePooling1D',
@@ -76,16 +76,21 @@ model_cfg_cnn_stride = {
     'str_inc' : True,
     'batch_norm' : True,
     "metrics": "r_square",
-    'fc_dec'  : True,
+    'ker_dec' : True,
+    'fc_dec' : True,
     #"activity_regularizer" : 1e-4,
     "loss": "gaussian"  # huber was working great for 2020 and 2021
 }
+
+
+
 #console 1 et 3 : activation in the layer + flipout
 #console 4 et 5 : activation outsie
 #MODEL 64 128 with drop out 0.5 works great on 2019
-model_cnn = cnn_tempnets.BayesTempCNNModel(model_cfg_cnn_stride)
+model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
+self = model_cnn
 
 pretraining = False
 cotraining = False
@@ -111,8 +116,6 @@ ts=3
 self = model_cnn
 x = x_train
 batch_size = 8
-
-print(path)
 print('clip to 0.5')
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
@@ -120,7 +123,7 @@ model_cnn.train_and_evaluate(
     test_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
-    batch_size = 8,
+    batch_size = 12,
     function = np.min,
     shift_step = 1, #3
     sdev_label =0.05, #0.1
@@ -138,20 +141,23 @@ model_cnn.train_and_evaluate(
 model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
 t,_sig = model_cnn.predict(x_test)
 plt.scatter(y_test, t)
+mean_absolute_error(y_test, t)
 plt.show()
 import pandas as pd
-df = pd.DataFrame([t.flatten(), y_test,np.sqrt(np.exp(_sig.flatten()))]).T
+df = pd.DataFrame([t.flatten(), y_test.flatten(),np.sqrt(np.exp(_sig.flatten()))]).T
 df.columns = ['preds', 'true', 'uncertainty']
+df['scaled'] = (df['uncertainty']/(df['preds']+1e-2))
+
+plt.hist(df['uncertainty'], bins=16)
+plt.show()
 threshold = np.quantile(df['uncertainty'],0.95)
 df = df[df.uncertainty < threshold]
 plt.scatter(df['true'], df['preds'])
 plt.show()
 r2_score(df['true'], df['preds'])
-np.histogram(df['uncertainty'])
-plt.hist(df['uncertainty'], bins=16)
-plt.show()
+mean_absolute_error(df['true'], df['preds'])
 
-x_test.shape
+
 plt.scatter(y_test,np.sqrt(np.exp(_sig)))
 plt.show()
 plt.scatter(y_test,t)
@@ -162,7 +168,7 @@ r2_score(y_test,t)
 fig = plt.figure(figsize=(15,10))
 ax = fig.add_subplot(1,1,1)
 plt.scatter(y_test.flatten(),t.flatten(), color = 'red')
-plt.errorbar(y_test.flatten(),t.flatten(), yerr=1.64*np.sqrt(np.exp(_sig).flatten()), fmt="o")
+plt.errorbar(y_test.flatten(),t.flatten(), yerr=1.5*np.sqrt(np.exp(_sig).flatten()), fmt="o")
 plt.show()
 
 np.corrcoef(y_test.flatten(),t.flatten())

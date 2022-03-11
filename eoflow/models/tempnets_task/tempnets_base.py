@@ -5,7 +5,7 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining
+from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt
 import tensorflow as tensorflow
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
@@ -120,7 +120,7 @@ class BaseTempnetsModel(BaseModelTraining):
 
 
 
-class BaseCustomTempnetsModel(BaseModelCoTraining):
+class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdapt):
     """ Base for pixel-wise classification models. """
 
     class _Schema(Schema):

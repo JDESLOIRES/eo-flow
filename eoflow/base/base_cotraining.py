@@ -104,6 +104,79 @@ class BaseModelCoTraining(BaseModelCustomTraining):
 
         self.save_weights(os.path.join(pretraining_path, 'pretrained_model'))
 
+    def multitask_pretraining(self,
+                              train_dataset,
+                              val_dataset,
+                              test_dataset,
+                              pretraining_path = None,
+                              additional_target = None,
+                              batch_size=8, num_epochs=500,
+                              patience = 100,
+                              shift = 5, lambda_ = 1):
+
+        x_train, y_train = train_dataset
+        y_train = y_train.astype('float32')
+        x_val, y_val = val_dataset
+        y_val = y_val.astype('float32')
+        x_test, y_test = test_dataset
+        y_test = y_test.astype('float32')
+
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
+
+        val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+        _, _ = self(tf.zeros(list(x_train.shape)))
+        wait = 0
+
+        for epoch in range(num_epochs):
+            x_train_, y_train_ = shuffle(x_train, y_train)
+            if not additional_target:
+                ts_masking, shift_arr, mask_sh = timeshift(x_train_, shift, proba=0.15)
+            else:
+                ts_masking,  shift_arr, mask_sh, = x_train_, additional_target, np.zeros((x_train_.shape[0]), dtype='float32') + 1
+            shift_arr  = (shift_arr - np.min(shift_arr))/(np.max(shift_arr) - np.min(shift_arr))
+
+            #ts_masking, _ = feature_noise(ts_masking, value=0.05, proba=0.5)
+            train_ds = tf.data.Dataset.from_tensor_slices((ts_masking, y_train_, shift_arr, mask_sh))
+            train_ds = train_ds.batch(batch_size)
+
+            for ts_masking_batch, y_batch_train, shift_batch, mask_sh_batch in train_ds:  # tqdm
+                with tf.GradientTape() as tape:
+                    y_preds, aux_preds = self.call(ts_masking_batch, training=True)
+                    cost_supervised = tf.reduce_mean(self.loss(y_batch_train, y_preds))
+                    cost_unsupervised = tf.reduce_mean(tf.multiply(self.loss(shift_batch, aux_preds), mask_sh_batch))
+                    cost = cost_supervised + lambda_ * cost_unsupervised
+
+                grads = tape.gradient(cost, self.trainable_weights)
+                self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+                self.loss_metric.update_state(cost)
+
+            loss_epoch = self.loss_metric.result().numpy()
+            self.loss_metric.reset_states()
+
+            if epoch%5==0:
+                wait +=1
+                self.val_step(val_ds)
+                val_loss_epoch = self.loss_metric.result().numpy()
+                val_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
+                ####################################################
+                self.val_step(test_ds)
+                test_loss_epoch = self.loss_metric.result().numpy()
+                test_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
+                print(
+                    "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}, Test loss {4}, Test acc {5}".format(
+                        str(epoch), str(loss_epoch),
+                        str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
+                        str(round(test_loss_epoch, 4)), str(round(test_acc_result, 4)),
+                    ))
+                reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
+
+        self.save_weights(os.path.join(pretraining_path, 'multioutput_model'))
+
     @staticmethod
     def _cost_cotraining(y_batch, y_preds, jcor, lambda_, forget_rate,
                          loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE) ):
