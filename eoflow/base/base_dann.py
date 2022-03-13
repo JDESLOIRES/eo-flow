@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import numpy as np
 import pickle
@@ -6,12 +5,8 @@ import os
 
 import tensorflow as tf
 
-from . import Configurable
-from eoflow.base.base_callbacks import CustomReduceLRoP
-from eoflow.models.data_augmentation import data_augmentation, timeshift, feature_noise
 from tensorflow.keras.layers import Dense
 from .base_custom_training import BaseModelCustomTraining
-from keras.models import clone_model
 
 
 class BaseModelAdapt(BaseModelCustomTraining):
@@ -63,10 +58,11 @@ class BaseModelAdapt(BaseModelCustomTraining):
         y_t = y_t.astype('float32')
         return tf.data.Dataset.from_tensor_slices((x_s, y_s, x_t, y_t)).batch(batch_size)
 
-    def assign_missing_obs(self, x_s, x_t, y_t):
+    @staticmethod
+    def _assign_missing_obs(x_s, x_t, y_t):
         if x_t.shape[0] < x_s.shape[0]:
-            x_t, y_t = np.repeat(x_t, x_s.shape[0] // x_t.shape[0], axis=0), np.repeat(y_t,
-                                                                                       x_s.shape[0] // x_t.shape[0])
+            x_t, y_t = np.repeat(x_t, x_s.shape[0] // x_t.shape[0], axis=0), \
+                       np.repeat(y_t, x_s.shape[0] // x_t.shape[0])
             num_missing = x_s.shape[0] - x_t.shape[0]
             additional_obs = np.random.choice(x_t.shape[0], size=num_missing, replace=False)
             x_t, y_t = np.concatenate([x_t, x_t[additional_obs,]], axis=0), \
@@ -76,8 +72,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
     @staticmethod
     def _get_lambda(factor, num_epochs, epoch):
         p = float(epoch) / (num_epochs)
-        lamb_da = factor * (2 / (1 + np.exp(-10 * p, dtype=np.float32)) - 1)
-        return lamb_da.astype('float32')
+        return factor * (2.0 / (1.0 + np.exp(-10.0 * p, dtype=np.float32)) - 1.0)
 
     def trainstep_dann(self,
                        train_ds,
@@ -111,9 +106,12 @@ class BaseModelAdapt(BaseModelCustomTraining):
             gradients_disc = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
 
             # Update weights
-            self.task.optimizer.apply_gradients(zip(gradients_task, self.task.trainable_variables))
-            self.encoder.optimizer.apply_gradients(zip(gradients_enc, self.encoder.trainable_variables))
-            self.discriminator.optimizer.apply_gradients(zip(gradients_disc, self.discriminator.trainable_variables))
+            opt_op_task = self.task.optimizer.apply_gradients(zip(gradients_task, self.task.trainable_variables))
+            with tf.control_dependencies([opt_op_task]): self.ema.apply(self.task.trainable_variables)
+            opt_op_enc = self.encoder.optimizer.apply_gradients(zip(gradients_enc, self.encoder.trainable_variables))
+            with tf.control_dependencies([opt_op_enc]): self.ema.apply(self.encoder.trainable_variables)
+            opt_op_disc = self.discriminator.optimizer.apply_gradients(zip(gradients_disc, self.discriminator.trainable_variables))
+            with tf.control_dependencies([opt_op_disc]): self.ema.apply(self.discriminator.trainable_variables)
 
             self.task.loss_metric.update_state(loss)
             self.encoder.loss_metric.update_state(enc_loss)
@@ -145,7 +143,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
         x_s, y_s = train_dataset
         x_t, y_t = test_dataset
-        x_t, y_t = self.assign_missing_obs(x_s, x_t, y_t)
+        x_t, y_t = self._assign_missing_obs(x_s, x_t, y_t)
 
         self._get_encoder(x_s)
         self._get_task(x_s)
@@ -164,7 +162,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
             x_s, y_s, x_t, y_t = shuffle(x_s, y_s, x_t, y_t)
             train_ds = self._init_dataset_training(x_s, y_s, x_t, y_t, batch_size)
             lambda_ =  self._get_lambda(factor, num_epochs, epoch)
-  
+
             self.trainstep_dann(train_ds, lambda_)
 
             # End epoch

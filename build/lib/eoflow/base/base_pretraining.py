@@ -1,15 +1,11 @@
-import tensorflow as tf
 from sklearn.utils import shuffle
-import numpy as np
-import pickle
 
 import os
 
 import tensorflow as tf
 
 from . import Configurable
-from eoflow.base.base_callbacks import CustomReduceLRoP
-from eoflow.models.data_augmentation import timeshift, feature_noise, noisy_label
+from eoflow.models.data_augmentation import feature_noise
 from keras.models import Sequential
 from keras.layers import Dense
 

@@ -64,22 +64,23 @@ r2_score(y_test, preds)
 '''
 
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-3,
+    "learning_rate": 10e-4,
     "keep_prob": 0.5,  # should keep 0.8
-    "nb_conv_filters": 32,  # wiorks great with 32
+    "nb_conv_filters": 64,  # wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons": 64,
+    "nb_fc_neurons": 128,
     "nb_fc_stacks": 2,  # Nb FCN layers
     "fc_activation": 'relu',
-    "kernel_size": 3,
+    "kernel_size": 7,
     "n_strides": 1,
     "padding": "SAME",
     "emb_layer": 'GlobalAveragePooling1D',
     "enumerate": True,
     'str_inc': True,
     'fc_dec' : True,
+    'ker_dec' : True,
     "metrics": "r_square",
-     "kernel_regularizer" : 1e-10,
+     "kernel_regularizer" : 0,
     "loss": "mse"  # huber was working great for 2020 and 2021
 }
 
@@ -98,7 +99,7 @@ model_cnn.fit_dann(
     save_steps=5,
     batch_size=12,
     patience=100,
-    factor=0.1,
+    factor=0.0,
     reduce_lr=True,
     model_directory='/home/johann/Documents/model_16',
 )

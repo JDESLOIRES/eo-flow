@@ -1,17 +1,11 @@
-import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import numpy as np
-import pickle
-import os
 
 import tensorflow as tf
 
-from . import Configurable
-from eoflow.base.base_callbacks import CustomReduceLRoP
-from eoflow.models.data_augmentation import data_augmentation, timeshift, feature_noise
 from tensorflow.keras.layers import Dense
 from .base_custom_training import BaseModelCustomTraining
-from keras.models import clone_model
+
 
 class BaseModelAdapt(BaseModelCustomTraining):
     def __init__(self, config_specs):
