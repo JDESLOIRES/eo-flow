@@ -22,6 +22,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
         dense_layers = self.layers[0].layers[-2].output
 
         output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
+
         output_task = self.layers[0].layers[-1].output
 
         return inputs, encode, dense_layers, output_discriminator, output_task
@@ -46,7 +47,11 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
     def _get_task(self, x):
         _, encode, _, _, output_task = self._init_models(x)
-        task = tf.keras.Model(inputs=encode, outputs=output_task)
+        if self.config.loss not in ['gaussian', 'laplacian']:
+            task = tf.keras.Model(inputs=encode, outputs=output_task)
+        else:
+            output_tasks = [self.layers[0].layers[-1].output, self.layers[0].layers[-2].output]
+            task = tf.keras.Model(inputs=encode, outputs=output_tasks)
         task.summary()
         self.task = self._assign_properties(task)
 
@@ -83,17 +88,23 @@ class BaseModelAdapt(BaseModelCustomTraining):
             with tf.GradientTape() as gradients_task, tf.GradientTape() as enc_tape, tf.GradientTape() as disc_tape:
                 # Forward pass
                 Xs_enc = self.encoder(Xs, training=True)
-                ys_pred = self.task(Xs_enc, training=True)
+
+                if self.config.loss  in ['gaussian', 'laplacian']:
+                    ys_pred, sigma_s = self.call(Xs_enc, training=False)
+                    ys_pred, sigma_s = tf.reshape(ys_pred, tf.shape(ys)), tf.reshape(sigma_s, tf.shape(ys))
+                    cost = self.loss(ys_pred, sigma_s, ys)
+                else:
+                    ys_pred = self.task(Xs_enc, training=True)
+                    ys_pred = tf.reshape(ys_pred, tf.shape(ys))
+                    cost = self.loss(ys, ys_pred)
+
                 ys_disc = self.discriminator(Xs_enc, training=True)
 
                 Xt_enc = self.encoder(Xt, training=True)
                 yt_disc = self.discriminator(Xt_enc, training=True)
 
-                # Reshape
-                ys_pred = tf.reshape(ys_pred, tf.shape(ys))
-
                 # Compute the loss value
-                loss = tf.reduce_mean(self.loss(ys, ys_pred))
+                loss = tf.reduce_mean(cost)
                 disc_loss = tf.reduce_mean((-tf.math.log(ys_disc + eps) - tf.math.log(1 - yt_disc + eps)))
                 enc_loss = loss - lambda_ * disc_loss
                 # https://stackoverflow.com/questions/56693863/why-does-model-losses-return-regularization-losses
@@ -122,8 +133,14 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
         for x_batch, y_batch in val_ds:
             x_enc = self.encoder(x_batch, training=False)
-            y_pred = self.task(x_enc, training=False)
-            cost = tf.reduce_mean(self.loss(y_batch, y_pred))
+            if self.config.loss in ['gaussian', 'laplacian']:
+                y_pred, sigma_ = self.call(x_enc, training=False)
+                cost = self.loss(y_pred, sigma_, y_batch)
+            else:
+                y_pred = self.task(x_enc, training=False)
+                cost = self.loss(y_batch, y_pred)
+
+            cost = tf.reduce_mean(cost)
             self.task.loss_metric.update_state(cost)
             self.metric.update_state(y_batch, y_pred)
 
@@ -136,7 +153,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
                  model_directory,
                  save_steps=10,
                  patience = 30,
-                 factor = 0.1,
+                 factor = 1.0,
                  reduce_lr = False,
                  function=np.min):
 

@@ -90,8 +90,12 @@ model_cfg_cnn_stride = {
 model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-self = model_cnn
 
+model_cnn.summary()
+self = model_cnn
+x = x_train
+y = y_train
+model_cnn(x)
 pretraining = False
 cotraining = False
 

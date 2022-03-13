@@ -38,7 +38,7 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2020'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -68,12 +68,12 @@ model_cfg_cnn_stride = {
     "keep_prob": 0.5,  # should keep 0.8
     "nb_conv_filters": 64,  # wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons": 128,
+    "nb_fc_neurons": 64,
     "nb_fc_stacks": 2,  # Nb FCN layers
     "fc_activation": 'relu',
     "kernel_size": 7,
     "n_strides": 1,
-    "padding": "SAME",
+    "padding": "CAUSAL",
     "emb_layer": 'GlobalAveragePooling1D',
     "enumerate": True,
     'str_inc': True,
@@ -99,7 +99,7 @@ model_cnn.fit_dann(
     save_steps=5,
     batch_size=12,
     patience=100,
-    factor=0.0,
+    factor=1.0,
     reduce_lr=True,
     model_directory='/home/johann/Documents/model_16',
 )

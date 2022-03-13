@@ -144,7 +144,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
         output_activation = fields.String(missing='linear', description='Output activation')
         residual_block = fields.Bool(missing=False, description= 'Add residual block')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
-        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        kernel_regularizer = fields.Float(missing=0.0, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         str_inc = fields.Bool(missing=False, description='Increase strides')
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
