@@ -7,10 +7,11 @@ from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt, BaseModelAdaptV2
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
+
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -118,7 +119,7 @@ class TCNModel(BaseCustomTempnetsModel):
 
 
 
-class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
+class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
     """ Implementation of the TempCNN network taken from the temporalCNN implementation
 
         https://github.com/charlotte-pel/temporalCNN
@@ -144,7 +145,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
         output_activation = fields.String(missing='linear', description='Output activation')
         residual_block = fields.Bool(missing=False, description= 'Add residual block')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
-        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        kernel_regularizer = fields.Float(missing=0.0, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         str_inc = fields.Bool(missing=False, description='Increase strides')
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
@@ -152,6 +153,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
         batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
+        gradient_reversal = fields.Bool(missing=True, description='Whether to use gradient reversal.')
 
     def _cnn_layer(self, net, i = 0, first = False):
 
@@ -224,11 +226,12 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        net = self._cnn_layer(net, 0, first = True)
+        conv = self._cnn_layer(net, 0, first = True)
         for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
-            net = self._cnn_layer(net, i+1)
+            conv = self._cnn_layer(conv, i+1)
 
-        embedding = self._embeddings(net)
+        embedding = self._embeddings(conv)
+
         net_mean = self._fcn_layer(embedding)
 
         for i in range(1, self.config.nb_fc_stacks):
@@ -248,20 +251,15 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdapt):
                                  activation=self.config.output_activation,
                                  kernel_initializer=self.config.kernel_initializer,
                                  kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_std)
-            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
+
+            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma, embedding])
         else:
-            self.net = tf.keras.Model(inputs=x, outputs=output)
+            self.net = tf.keras.Model(inputs=x, outputs=[output, embedding])
 
         print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
-
-    def get_feature_map(self):
-        output_layer = self.net.tf.keras.layers[-(self.config.nb_fc_stacks * 4 + 2)]
-        return tf.keras.Model(
-            inputs=self.net.tf.keras.layers[0].input, outputs=output_layer.output
-        )
 
 
 

@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.losses import Loss, Reduction
 import tensorflow_probability as tfp
+from keras import backend as K
 
 class NegLL(Loss):
     """
@@ -75,6 +76,39 @@ class LaplacianNLL(Loss):
                                     clip_value_min=tf.constant(1e-6),
                                     clip_value_max=tf.constant(10.0))
         return 1 / variance * tf.math.abs(prediction - target) + log_variance
+
+
+
+class RMAPE(Loss):
+    """
+    Laplacian negative log likelihood to fit the mean and variance to p(y|x)
+    Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
+    Furthermore, the constant log term is discarded.
+    """
+    def __init__(self, reduction=Reduction.AUTO, name='RMAPE'):
+        super().__init__(reduction=reduction, name=name)
+        self.eps = 1e-4
+
+    def call(self, y_true, y_pred):
+        """
+        """
+        return tf.math.sqrt(tf.reduce_mean(tf.math.square((y_true - y_pred + self.eps) / (y_true + self.eps))))
+
+
+class RMSE(Loss):
+    """
+    Laplacian negative log likelihood to fit the mean and variance to p(y|x)
+    Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
+    Furthermore, the constant log term is discarded.
+    """
+    def __init__(self, reduction=Reduction.AUTO, name='RMSE'):
+        super().__init__(reduction=reduction, name=name)
+        self.eps = 1e-4
+
+    def call(self, y_true, y_pred):
+        """
+        """
+        return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred))))
 
 
 def cropped_loss(loss_fn):

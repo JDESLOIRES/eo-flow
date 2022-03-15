@@ -38,7 +38,7 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2020'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -90,8 +90,11 @@ model_cfg_cnn_stride = {
 model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
+self = model_cnn
+x = x_train
 
-model_cnn.fit_dann(
+
+model_cnn.fit_dann_v2(
     train_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
     test_dataset=(x_test, y_test),
@@ -99,7 +102,13 @@ model_cnn.fit_dann(
     save_steps=5,
     batch_size=12,
     patience=100,
-    factor=1.0,
+    factor=0.1,
+    fillgaps=2,
+    shift_step=0,
+    sdev_label=0.05,
+    feat_noise=0.1,
     reduce_lr=True,
     model_directory='/home/johann/Documents/model_16',
 )
+a, b = self.call(x)
+b.shape

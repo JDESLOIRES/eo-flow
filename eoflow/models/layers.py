@@ -3,6 +3,21 @@ import tensorflow as tf
 from tensorflow.keras.layers import Activation, SpatialDropout1D, Lambda, UpSampling2D, AveragePooling2D
 from tensorflow.keras.layers import Conv1D, BatchNormalization, LayerNormalization
 
+class GradReverse(tf.keras.layers.Layer):
+    def __init__(self):
+        super().__init__()
+
+    @tf.custom_gradient
+    def _gradient_reverse(self, x, lamb_da=1.0):
+        y = tf.identity(x)
+        def custom_grad(dy):
+            return lamb_da * -dy, None
+        return y, custom_grad
+
+    def call(self, x, lambda_=1.0):
+        return self._gradient_reverse(x, lambda_)
+
+
 
 class ResidualBlock(tf.keras.layers.Layer):
     """ Code taken from keras-tcn implementation on available on

@@ -5,10 +5,10 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt
+from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2
 import tensorflow as tensorflow
 
-from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
+from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
 from eoflow.models.metrics import InitializableMetric, RSquared
 
 
@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO,
 # Available losses. Add keys with new losses here.
 dictionary_losses = {
     'mse': tensorflow.keras.losses.MeanSquaredError,
+    'msle': tensorflow.keras.losses.MeanSquaredLogarithmicError,
     'huber': tensorflow.keras.losses.Huber,
     'mae': tensorflow.keras.losses.MeanAbsoluteError,
     'cross_entropy': CategoricalCrossEntropy,
@@ -27,7 +28,9 @@ dictionary_losses = {
     'pearson':  PearsonR,
     'cosine' : CosineSim,
     'gaussian': GaussianNLL,
-    'laplacian': LaplacianNLL
+    'laplacian': LaplacianNLL,
+    'rmape' : RMAPE,
+    'rmse' : RMSE
 }
 
 # Available metrics. Add keys with new metrics here.
@@ -120,7 +123,7 @@ class BaseTempnetsModel(BaseModelTraining):
 
 
 
-class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdapt):
+class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2):
     """ Base for pixel-wise classification models. """
 
     class _Schema(Schema):

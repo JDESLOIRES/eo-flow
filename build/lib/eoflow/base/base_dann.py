@@ -7,7 +7,8 @@ import tensorflow as tf
 
 from tensorflow.keras.layers import Dense
 from .base_custom_training import BaseModelCustomTraining
-
+from eoflow.models.data_augmentation import data_augmentation
+from eoflow.models.layers import GradReverse
 
 class BaseModelAdapt(BaseModelCustomTraining):
     def __init__(self, config_specs):
@@ -19,12 +20,19 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
         inputs = self.layers[0].input
         encode = self.layers[0].layers[self.config.nb_conv_stacks * 4 + 1].output
-        dense_layers = self.layers[0].layers[-2].output
 
-        output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
-        output_task = self.layers[0].layers[-1].output
+        if self.config.loss in ['gaussian', 'laplacian']:
+            dense_layers = self.layers[0].layers[-2 * 2 + 1].output
+            output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
+            output_task = [self.layers[0].layers[-1].output, self.layers[0].layers[-2].output]
+        else:
+            dense_layers = self.layers[0].layers[-2].output
+            output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
+            output_task = self.layers[0].layers[-1].output
 
         return inputs, encode, dense_layers, output_discriminator, output_task
+
+
 
     def _assign_properties(self, model):
         model.optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
@@ -39,6 +47,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
     def _get_discriminator(self, x):
         _, encode, _, output_discriminator, _ = self._init_models(x)
+
         discriminator = tf.keras.Model(inputs=encode, outputs=output_discriminator)
         discriminator.summary()
         self.discriminator = self._assign_properties(discriminator)
@@ -46,6 +55,7 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
     def _get_task(self, x):
         _, encode, _, _, output_task = self._init_models(x)
+
         task = tf.keras.Model(inputs=encode, outputs=output_task)
         task.summary()
         self.task = self._assign_properties(task)
@@ -77,23 +87,29 @@ class BaseModelAdapt(BaseModelCustomTraining):
     def trainstep_dann(self,
                        train_ds,
                        lambda_=1.0,
-                       eps = 1e-6):
+                       eps=1e-6):
 
         for Xs, ys, Xt, yt in train_ds:
             with tf.GradientTape() as gradients_task, tf.GradientTape() as enc_tape, tf.GradientTape() as disc_tape:
                 # Forward pass
                 Xs_enc = self.encoder(Xs, training=True)
-                ys_pred = self.task(Xs_enc, training=True)
-                ys_disc = self.discriminator(Xs_enc, training=True)
 
-                Xt_enc = self.encoder(Xt, training=True)
-                yt_disc = self.discriminator(Xt_enc, training=True)
+                if self.config.loss in ['gaussian', 'laplacian']:
+                    ys_pred, sigma_s = self.task.call(Xs_enc, training=True)
+                    ys_pred, sigma_s = tf.reshape(ys_pred, tf.shape(ys)), tf.reshape(sigma_s, tf.shape(ys))
+                    cost = self.loss(ys_pred, sigma_s, ys)
+                else:
+                    ys_pred = self.task.call(Xs_enc, training=True)
+                    ys_pred = tf.reshape(ys_pred, tf.shape(ys))
+                    cost = self.loss(ys, ys_pred)
 
-                # Reshape
-                ys_pred = tf.reshape(ys_pred, tf.shape(ys))
+                ys_disc = self.discriminator.call(Xs_enc, training=True)
+
+                Xt_enc = self.encoder.call(Xt, training=True)
+                yt_disc = self.discriminator.call(Xt_enc, training=True)
 
                 # Compute the loss value
-                loss = tf.reduce_mean(self.loss(ys, ys_pred))
+                loss = tf.reduce_mean(cost)
                 disc_loss = tf.reduce_mean((-tf.math.log(ys_disc + eps) - tf.math.log(1 - yt_disc + eps)))
                 enc_loss = loss - lambda_ * disc_loss
                 # https://stackoverflow.com/questions/56693863/why-does-model-losses-return-regularization-losses
@@ -107,23 +123,35 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
             # Update weights
             opt_op_task = self.task.optimizer.apply_gradients(zip(gradients_task, self.task.trainable_variables))
-            with tf.control_dependencies([opt_op_task]): self.ema.apply(self.task.trainable_variables)
+            with tf.control_dependencies([opt_op_task]):
+                self.ema.apply(self.task.trainable_variables)
+
             opt_op_enc = self.encoder.optimizer.apply_gradients(zip(gradients_enc, self.encoder.trainable_variables))
-            with tf.control_dependencies([opt_op_enc]): self.ema.apply(self.encoder.trainable_variables)
-            opt_op_disc = self.discriminator.optimizer.apply_gradients(zip(gradients_disc, self.discriminator.trainable_variables))
-            with tf.control_dependencies([opt_op_disc]): self.ema.apply(self.discriminator.trainable_variables)
-            
+            with tf.control_dependencies([opt_op_enc]):
+                self.ema.apply(self.encoder.trainable_variables)
+
+            opt_op_disc = self.discriminator.optimizer.apply_gradients(
+                zip(gradients_disc, self.discriminator.trainable_variables))
+            with tf.control_dependencies([opt_op_disc]):
+                self.ema.apply(self.discriminator.trainable_variables)
+
             self.task.loss_metric.update_state(loss)
             self.encoder.loss_metric.update_state(enc_loss)
             self.discriminator.loss_metric.update_state(disc_loss)
 
-
     def valstep_dann(self, val_ds):
-
         for x_batch, y_batch in val_ds:
-            x_enc = self.encoder(x_batch, training=False)
-            y_pred = self.task(x_enc, training=False)
-            cost = tf.reduce_mean(self.loss(y_batch, y_pred))
+            x_enc = self.encoder.call(x_batch, training=False)
+            if self.config.loss in ['gaussian', 'laplacian']:
+                y_pred, sigma_ = self.task.call(x_enc, training=False)
+                y_pred, sigma_ = tf.reshape(y_pred, tf.shape(y_batch)), tf.reshape(sigma_, tf.shape(y_batch))
+                cost = self.loss(y_pred, sigma_, y_batch)
+            else:
+                y_pred = self.task.call(x_enc, training=False)
+                y_pred = tf.reshape(y_pred, tf.shape(y_batch))
+                cost = self.loss(y_batch, y_pred)
+
+            cost = tf.reduce_mean(cost)
             self.task.loss_metric.update_state(cost)
             self.metric.update_state(y_batch, y_pred)
 
@@ -135,10 +163,15 @@ class BaseModelAdapt(BaseModelCustomTraining):
                  num_epochs,
                  model_directory,
                  save_steps=10,
-                 patience = 30,
-                 factor = 0.1,
-                 reduce_lr = False,
+                 patience=30,
+                 factor=1.0,
+                 shift_step=0,
+                 feat_noise=0,
+                 sdev_label=0,
+                 fillgaps = 0,
+                 reduce_lr=False,
                  function=np.min):
+
 
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
         x_s, y_s = train_dataset
@@ -160,22 +193,24 @@ class BaseModelAdapt(BaseModelCustomTraining):
         for epoch in range(num_epochs + 1):
 
             x_s, y_s, x_t, y_t = shuffle(x_s, y_s, x_t, y_t)
+            if patience and epoch >= patience:
+                x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
+                x_t, _ = data_augmentation(x_t, y_t, shift_step, feat_noise, sdev_label, fillgaps)
             train_ds = self._init_dataset_training(x_s, y_s, x_t, y_t, batch_size)
-            lambda_ =  self._get_lambda(factor, num_epochs, epoch)
+            lambda_ = self._get_lambda(factor, num_epochs, epoch)
 
             self.trainstep_dann(train_ds, lambda_)
-
-            # End epoch
             loss_epoch = self.task.loss_metric.result().numpy()
             train_loss.append(loss_epoch)
+
             self.task.loss_metric.reset_states()
             self.encoder.loss_metric.reset_states()
             self.discriminator.loss_metric.reset_states()
 
             if epoch % save_steps == 0:
                 wait += 1
-                self.val_step(val_ds)
-                val_loss_epoch = self.loss_metric.result().numpy()
+                self.valstep_dann(val_ds)
+                val_loss_epoch = self.task.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
                 self.task.loss_metric.reset_states()
                 self.metric.reset_states()
@@ -190,7 +225,8 @@ class BaseModelAdapt(BaseModelCustomTraining):
                         or function is np.max and val_loss_epoch > function(val_loss)):
                     # wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
-                    self.save_weights(os.path.join(model_directory, 'best_model'))
+                    self.encoder.save_weights(os.path.join(model_directory, 'best_encoder_model'))
+                    self.task.save_weights(os.path.join(model_directory, 'best_task_model'))
                 if reduce_lr:
                     reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
 
@@ -206,6 +242,3 @@ class BaseModelAdapt(BaseModelCustomTraining):
                       )
         with open(os.path.join(model_directory, 'history.pickle'), 'wb') as d:
             pickle.dump(losses, d, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-

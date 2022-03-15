@@ -61,8 +61,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                     mu_, sigma_ = self.call(x_batch_train, training=True)
                     cost = self.loss(mu_, sigma_, y_batch_train)
 
-                cost = tf.sort(cost, direction='DESCENDING')
                 if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
+                    cost = tf.sort(cost, direction='DESCENDING')
                     cost = cost[n_forget:]
                 cost = tf.reduce_mean(cost)
 
@@ -129,6 +129,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             shift_step=0,
             feat_noise=0,
             sdev_label=0,
+            fillgaps=0,
             pretraining_path = None,
             patience = 30,
             finetuning = False,
@@ -166,15 +167,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 if forget and feat_noise:
                     n_forget = forget
 
-                x_train_, y_train_ = data_augmentation(x_train_, y_train_,
-                                                       shift_step, feat_noise,
-                                                       sdev_label)
+                x_train_, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 
             self.train_step(train_ds, n_forget, batch_size)
-
-            # End epoch
             loss_epoch = self.loss_metric.result().numpy()
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()

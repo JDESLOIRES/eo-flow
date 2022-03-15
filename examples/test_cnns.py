@@ -44,8 +44,8 @@ y_val = np.load(os.path.join(path, 'val_y.npy'))
 x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
-#x_train = np.concatenate([x_train, x_val], axis = 0)
-#y_train = np.concatenate([y_train, y_val], axis = 0)
+x_train = np.concatenate([x_train, x_val], axis = 0)
+y_train = np.concatenate([y_train, y_val], axis = 0)
 
 
 '''
@@ -61,16 +61,16 @@ r2_score(y_test, preds)
 
 
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-4,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 32, #wiorks great with 32
+    "learning_rate": 5e-4,
+    "keep_prob" : 0.65, #should keep 0.8
+    "nb_conv_filters": 64, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
     "nb_fc_neurons" : 64,
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 7,
     "n_strides" :1,
-    "padding": "SAME",
+    "padding": "CAUSAL",
     "emb_layer" : 'GlobalAveragePooling1D',
     "enumerate" : True,
     'str_inc' : True,
@@ -79,7 +79,7 @@ model_cfg_cnn_stride = {
     'ker_dec' : True,
     'fc_dec' : True,
     #"activity_regularizer" : 1e-4,
-    "loss": "gaussian"  # huber was working great for 2020 and 2021
+    "loss": "rmse"  # huber was working great for 2020 and 2021
 }
 
 
@@ -91,11 +91,10 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
-model_cnn.summary()
 self = model_cnn
 x = x_train
 y = y_train
-model_cnn(x)
+
 pretraining = False
 cotraining = False
 
@@ -129,21 +128,24 @@ model_cnn.train_and_evaluate(
     save_steps=5,
     batch_size = 12,
     function = np.min,
-    shift_step = 1, #3
-    sdev_label =0.05, #0.1
+    shift_step = 0, #3
+    sdev_label =0.05, #0.11
+    fillgaps=2,
     feat_noise = 0.05, #0.2
     patience = 100,
     forget = 0,
     reduce_lr = True,
     #finetuning = True,
     #pretraining_path ='/home/johann/Documents/model_64_Causal_Stride_shift_0',
-    model_directory='/home/johann/Documents/model_16',
+    model_directory='/home/johann/Documents/model_16_',
 )
+
+
 
 
 #CONSOLE 15 : clip 0.15 ; console 16 : clip to 0.001-1.0
 model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
-t,_sig = model_cnn.predict(x_test)
+t = model_cnn.predict(x_test)
 plt.scatter(y_test, t)
 mean_absolute_error(y_test, t)
 plt.show()
