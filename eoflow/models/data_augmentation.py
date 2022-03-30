@@ -2,14 +2,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 
-def timeshift(x_, value = 4, proba = 0.5): #0.5 before
+
+def timeshift(x_, value = 4, proba = 0.25): #0.5 before
     x = x_.copy()
 
     def _shift(x, rand_unif):
         return np.roll(x, rand_unif)
 
     shift_list = []
-    mask  = np.zeros((x.shape[0]), dtype='float32')
+    mask = np.zeros((x.shape[0]), dtype='float32')
 
     for i in range(x.shape[0]):
         prob = random.random()
@@ -19,9 +20,11 @@ def timeshift(x_, value = 4, proba = 0.5): #0.5 before
             mask[i] = 1
             if prob < 0.5:
                 rand_unif*=-1
-                x[i,] = np.apply_along_axis(_shift, 0, x[i,], **{'rand_unif' : rand_unif})
+                x[i,] = np.apply_along_axis(_shift, 0, x[i,],
+                                            **{'rand_unif' : rand_unif})
             else:
-                x[i,] = np.apply_along_axis(_shift, 0, x[i,],**{'rand_unif' : rand_unif})
+                x[i,] = np.apply_along_axis(_shift, 0, x[i,],
+                                            **{'rand_unif' : rand_unif})
             shift_list.append(rand_unif)
         else:
             shift_list.append(0)
@@ -32,7 +35,6 @@ def timeshift(x_, value = 4, proba = 0.5): #0.5 before
 
 
 def feature_noise(x_batch, value = 0.2, proba = 0.15):
-
     ts_masking = x_batch.copy()
     mask = np.zeros((ts_masking.shape[0], ts_masking.shape[1],), dtype='float32')
 
@@ -49,14 +51,14 @@ def feature_noise(x_batch, value = 0.2, proba = 0.15):
     return ts_masking, mask
 
 
-def noisy_label(y_, stdev =0.05, proba = 0.5):
+def noisy_label(y_, stdev =0.05, proba = 0.15):
     y = y_.copy()
     y = y.reshape(y.shape[0], 1)
 
     for i in range(y.shape[0]):
         prob = random.random()
         if prob < proba:
-            y[i,:] = y[i,:] + np.random.normal(0, stdev, 1)
+            y[i,:] = y[i,:] * np.random.normal(1, stdev, 1)
 
         y[i,:] = max(y[i,:], 0)
         y[i,:] = min(y[i,:], 1)
@@ -115,13 +117,14 @@ def apply_fill_gaps(x_batch, value = 2, proba = 0.15):
 
 
 def data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps):
+    x_train = x_train_.copy()
     if shift_step:
-        x_train_, _, _ = timeshift(x_train_, shift_step)
+        x_train, _, _ = timeshift(x_train, shift_step)
     if feat_noise:
-        x_train_, _ = feature_noise(x_train_, feat_noise)
+        x_train, _ = feature_noise(x_train, feat_noise)
     if sdev_label:
         y_train_ = noisy_label(y_train_, sdev_label)
     if fillgaps:
-        x_train_, _ = apply_fill_gaps(x_train_, value = fillgaps)
+        x_train, _ = apply_fill_gaps(x_train, value = fillgaps)
 
-    return x_train_, y_train_
+    return x_train, y_train_

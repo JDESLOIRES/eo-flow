@@ -108,7 +108,11 @@ class RMSE(Loss):
     def call(self, y_true, y_pred):
         """
         """
-        return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred))))
+        y_pred = tf.cast(y_pred, 'float32')
+        y_true = tf.cast(y_true, 'float32')
+        rmse = tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred))))
+
+        return tf.cast(rmse, 'float32')
 
 
 def cropped_loss(loss_fn):

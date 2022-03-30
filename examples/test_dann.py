@@ -1,6 +1,7 @@
 import pandas as pd
 
 import eoflow.models.tempnets_task.cnn_tempnets as cnn_tempnets
+import eoflow.models.tempnets_task.cnn_tempnets_functional  as cnn_tempnets_functional
 import tensorflow as tf
 
 # Model configuration CNNLSTM
@@ -38,7 +39,7 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2020'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -65,14 +66,13 @@ r2_score(y_test, preds)
 
 model_cfg_cnn_stride = {
     "learning_rate": 10e-4,
-    "keep_prob": 0.5,  # should keep 0.8
-    "nb_conv_filters": 64,  # wiorks great with 32
+    "keep_prob": 0.65,  # should keep 0.8
+    "nb_conv_filters": 32,  # wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons": 64,
+    "nb_fc_neurons": 32,
     "nb_fc_stacks": 2,  # Nb FCN layers
     "fc_activation": 'relu',
     "kernel_size": 7,
-    "n_strides": 1,
     "padding": "CAUSAL",
     "emb_layer": 'GlobalAveragePooling1D',
     "enumerate": True,
@@ -80,7 +80,8 @@ model_cfg_cnn_stride = {
     'fc_dec' : True,
     'ker_dec' : True,
     "metrics": "r_square",
-     "kernel_regularizer" : 0,
+    'factor' : 0.5,
+    #'ema' : False,
     "loss": "mse"  # huber was working great for 2020 and 2021
 }
 
@@ -95,20 +96,24 @@ x = x_train
 
 
 model_cnn.fit_dann_v2(
-    train_dataset=(x_train, y_train),
+    src_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
-    test_dataset=(x_test, y_test),
+    trgt_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
     batch_size=12,
-    patience=100,
-    factor=0.1,
-    fillgaps=2,
+    patience=50,
+    fillgaps=0,
     shift_step=0,
-    sdev_label=0.05,
-    feat_noise=0.1,
+    sdev_label=0,
+    feat_noise=0,
     reduce_lr=True,
     model_directory='/home/johann/Documents/model_16',
 )
-a, b = self.call(x)
-b.shape
+
+
+
+model_cnn.summary()
+
+########################################################################################################################
+

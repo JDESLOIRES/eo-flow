@@ -7,11 +7,10 @@ from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt, BaseModelAdaptV2
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -109,20 +108,16 @@ class TCNModel(BaseCustomTempnetsModel):
             net = lambda_layer(net)
 
         net = tf.keras.layers.Dense(1, activation='linear')(net)
-
         self.net = tf.keras.Model(inputs=x, outputs=net)
-
-        #print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
 
 
-
-class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
-    """ Implementation of the TempCNN network taken from the temporalCNN implementation
-
-        https://github.com/charlotte-pel/temporalCNN
+class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
+    """
+    Implementation of the TempCNN network taken from the temporalCNN implementation
+    https://github.com/charlotte-pel/temporalCNN
     """
 
     class TempCNNModelSchema(BaseCustomTempnetsModel._Schema):
@@ -136,7 +131,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
         nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
         fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
 
-        emb_layer = fields.String(missing='Flatten', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
+        emb_layer = fields.String(missing='GlobalAveragePooling1D', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
                                   description='Final layer after the convolutions.')
         padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
                                 description='Padding type used in convolutions.')
@@ -151,9 +146,10 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decrease kernels')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
+        ema = fields.Bool(missing=True, description='Decrease dense neurons')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
         batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
-        gradient_reversal = fields.Bool(missing=True, description='Whether to use gradient reversal.')
+        factor = fields.Float(missing=1.0, description='Factor to multiply lambda for DANN.')
 
     def _cnn_layer(self, net, i = 0, first = False):
 
@@ -188,6 +184,16 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
 
         return layer
 
+    def _shortcut_layer(self, input_tensor, out_tensor):
+        shortcut_y = tf.keras.layers.Conv1D(filters=int(out_tensor.shape[-1]),
+                                            kernel_size=3,
+                                            padding='SAME', use_bias=False)(input_tensor)
+        shortcut_y = tf.keras.layers.BatchNormalization()(shortcut_y)
+        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob)(shortcut_y)
+        x = tf.keras.layers.Add()([shortcut_y, out_tensor])
+        x = tf.keras.layers.Activation('relu')(x)
+        return x
+
     def _embeddings(self,net):
 
         name = "embedding"
@@ -198,6 +204,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
         elif self.config.emb_layer == 'GlobalMaxPooling1D':
             net = tf.keras.layers.GlobalMaxPooling1D(name=name)(net)
         return net
+
 
     def _fcn_layer(self, net, i=0):
         dropout_rate = 1 - self.config.keep_prob
@@ -217,7 +224,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
         return layer_fcn
 
 
-    def build(self, inputs_shape):
+    def build(self, inputs_shape, lambda_ = 1.0):
         """ Build TCN architecture
 
         The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
@@ -230,36 +237,45 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2):
         for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
             conv = self._cnn_layer(conv, i+1)
 
+        #if self.config.use_residual: x = self._shortcut_layer(net, x)
+
         embedding = self._embeddings(conv)
+        '''
+        if not self.config.gradient_reversal:
+            dp_x = self.domain_predictor_layer0(embedding, lambda_)  # GradientReversalLayer
+            dp_x = self.domain_predictor_layer1(dp_x)
+            d_logits = self.domain_predictor_layer2(dp_x)
+            self.discriminator = tf.keras.Model(inputs=embedding, outputs=d_logits)
+        '''
 
-        net_mean = self._fcn_layer(embedding)
-
+        net_mean_emb = self._fcn_layer(embedding)
         for i in range(1, self.config.nb_fc_stacks):
-            net_mean = self._fcn_layer(net_mean, i)
+            net_mean_emb = self._fcn_layer(net_mean_emb, i)
 
         output = Dense(units = self.config.n_classes,
                        activation = self.config.output_activation,
                        kernel_initializer=self.config.kernel_initializer,
-                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_mean)
+                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_mean_emb)
 
         if self.config.multioutput or self.config.loss in ['gaussian', 'laplacian']:
-            net_std = self._fcn_layer(embedding)
+            net_aux = self._fcn_layer(embedding)
             for i in range(1, self.config.nb_fc_stacks):
-                net_std = self._fcn_layer(net_std, i)
+                net_aux = self._fcn_layer(net_aux, i)
 
-            output_sigma = Dense(units=self.config.n_classes,
+            output_sigma = Dense(units=1,
                                  activation=self.config.output_activation,
                                  kernel_initializer=self.config.kernel_initializer,
-                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_std)
-
+                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net_aux)
             self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma, embedding])
         else:
             self.net = tf.keras.Model(inputs=x, outputs=[output, embedding])
 
-        print_summary(self.net)
-
     def call(self, inputs, training=None):
         return self.net(inputs, training)
+
+    def build_graph(self, raw_shape):
+        x = tf.keras.layers.Input(shape=raw_shape)
+        return tf.keras.Model(inputs=[x], outputs=self.call(x))
 
 
 
@@ -294,6 +310,7 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decreae kernels')
+        use_residual = fields.Bool(missing=False, description='Use residuals.')
 
     def _cnn_layer(self, net, i = 0, first = False):
 
@@ -545,7 +562,7 @@ class InceptionCNN(BaseCustomTempnetsModel):
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=32, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
-        n_stride = fields.Int(missing=1, description='Value of convolutional strides.')
+        n_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         bottleneck_size = fields.Int(missing=32, description='Bottleneck size.')
         use_residual = fields.Bool(missing=False,description='Use residuals.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
@@ -559,32 +576,33 @@ class InceptionCNN(BaseCustomTempnetsModel):
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
         nb_class = fields.Int(missing=1, description='Number of class.')
         output_activation = fields.Str(missing='linear', description='Output activation.')
-        n_stride = fields.Int(missing=1, description='Number of strides.')
 
     def _inception_module(self, input_tensor, stride=1, activation='linear'):
 
         if self.config.use_bottleneck and int(input_tensor.shape[-1]) > 1:
             input_inception = tf.keras.layers.Conv1D(filters=self.config.bottleneck_size,
-                                                     kernel_size=1,
-                                                     padding='SAME',
+                                                     kernel_size=3,
+                                                     padding='CAUSAL',
                                                      activation=activation,
                                                      use_bias=False)(input_tensor)
         else:
             input_inception = input_tensor
 
-        kernel_size_s = [1,2,3]
+        kernel_size_s = [7,3,1]
+        strides = [1,2,2]
+
         #kernel_size_s = [5 // (2 ** i) for i in range(3)]
 
         conv_list = [
             tf.keras.layers.Conv1D(
                 filters=self.config.nb_conv_filters,
                 kernel_size=kernel_size_,
-                strides=stride,
-                padding='SAME',
+                strides=s,
+                padding='CAUSAL',
                 activation=activation,
                 use_bias=False,
             )(input_inception)
-            for kernel_size_ in kernel_size_s
+            for i, (kernel_size_, s) in enumerate(zip(kernel_size_s, strides))
         ]
 
         max_pool_1 = tf.keras.layers.MaxPool1D(pool_size=3, strides=self.config.n_strides, padding='SAME')(input_tensor)

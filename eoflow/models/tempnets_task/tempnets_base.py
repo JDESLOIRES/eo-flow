@@ -5,7 +5,7 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2
+from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3
 import tensorflow as tensorflow
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
@@ -56,6 +56,7 @@ class BaseTempnetsModel(BaseModelTraining):
         metrics = fields.List(fields.String, missing=['mse'],
                               description='List of metrics used for evaluation.',
                               validate=ContainsOnly(dictionary_metrics.keys()))
+        ema = fields.Bool(missing=True, description='Whether to use ema.')
 
     def prepare(self, optimizer=None, loss=None, metrics=None, **kwargs):
         """ Prepares the model. Optimizer, loss and metrics are read using the following protocol:
@@ -123,7 +124,7 @@ class BaseTempnetsModel(BaseModelTraining):
 
 
 
-class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2):
+class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2,BaseModelAdaptV3):
     """ Base for pixel-wise classification models. """
 
     class _Schema(Schema):
@@ -134,6 +135,8 @@ class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2):
         metrics = fields.String(missing='mse',
                                 description='List of metrics used for evaluation.',
                                 validate=OneOf(dictionary_metrics.keys()))
+        ema = fields.Bool(missing=True, description='Whether to use ema.')
+
 
     def prepare(self, optimizer=None, loss=None, metrics=None,
                 loss_metric = tf.keras.metrics.Mean(),

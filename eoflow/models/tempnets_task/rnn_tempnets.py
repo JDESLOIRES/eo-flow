@@ -44,6 +44,7 @@ class BiRNN(BaseCustomTempnetsModel):
 
         layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
 
     def _rnn_layer(self, net, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
@@ -143,6 +144,7 @@ class ConvLSTM(BaseCustomTempnetsModel):
         rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
         bidirectional = fields.Bool(missing=False, description='Whether to use a bidirectional layer')
         layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
 
     def _cnn_layer(self, net, i = 0):
 
