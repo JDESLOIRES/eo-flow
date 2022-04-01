@@ -66,11 +66,11 @@ r2_score(y_test, preds)
 
 
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-4,
+    "learning_rate": 10e-3,
     "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 64, #wiorks great with 32
+    "nb_conv_filters": 32, #wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 64,
+    "nb_fc_neurons" : 32,
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 7,
@@ -128,6 +128,7 @@ x = x_train
 batch_size = 8
 print('clip to 0.5')
 
+
 y_train_ = np.concatenate([y_train, y_train] , axis = 1)
 y_train_ = np.concatenate([y_train, y_train] , axis = 1)
 y_test_ = np.concatenate([y_test, y_test] , axis = 1)
@@ -141,14 +142,13 @@ model_cnn.fit(
     save_steps=5,
     batch_size = 12,
     function = np.min,
-    shift_step = 1, #3
+    shift_step = 0, #3
     sdev_label =0, #0.11
-    fillgaps=4,
+    fillgaps=0,
     feat_noise = 0, #0.2
-    patience = 100,
-    forget = 1,
+    patience = 50,
+    forget = 0,
     reduce_lr = True,
-    pretraining_path ='/home/johann/Documents/model_64_Causal_Stride_shift_4',
     model_directory='/home/johann/Documents/model_16_',
 )
 

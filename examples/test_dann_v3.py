@@ -32,9 +32,9 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-#path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
 
-path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2021/fold_1'
+#path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2019/fold_1'
 
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
@@ -66,7 +66,9 @@ model_cfg_cnn_stride = {
     "metrics": "r_square",
     "loss": "mse",
     'factor' : 10e-4,
-    'adaptative' : False
+    'adaptative' : False,
+    'ema': False,
+    'loss' : 'rmse'
 }
 
 
@@ -81,7 +83,6 @@ model_cnn.fit_dann_v3(
     val_dataset=(x_test, y_test),
     trgt_dataset=(x_test, y_test),
     num_epochs=500,
-    alpha_=0,
     save_steps=5,
     batch_size=12,
     patience=50,

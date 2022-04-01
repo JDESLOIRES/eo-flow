@@ -39,8 +39,8 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-#path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
-path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2021/fold_1'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+#path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2019/fold_1'
 
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
@@ -84,8 +84,10 @@ model_cfg_cnn_stride = {
     "metrics": "r_square",
     'factor' : 0.5,
     'adaptative' : False,
-    "loss": "mse"  # huber was working great for 2020 and 2021
+    'ema': False,
+    "loss": "rmse"  # huber was working great for 2020 and 2021
 }
+
 
 # console 1 et 3 : activation in the layer + flipout
 # console 4 et 5 : activation outsie

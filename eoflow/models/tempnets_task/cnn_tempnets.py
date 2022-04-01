@@ -143,8 +143,8 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
         kernel_regularizer = fields.Float(missing=0.0, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
         str_inc = fields.Bool(missing=False, description='Increase strides')
-        ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decrease kernels')
+        ker_even = fields.Bool(missing=False, description='Kernel size even')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
         ema = fields.Bool(missing=True, description='Apply EMA')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
@@ -162,12 +162,19 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
 
         if self.config.enumerate:
             filters = filters * (2**i)
-        if self.config.ker_inc:
-            kernel_size = kernel_size * (i+1)
 
         if self.config.ker_dec:
             kernel_size = self.config.kernel_size // (i+1)
-            if kernel_size ==0: kernel_size += 1
+            if (
+                kernel_size != 0
+                and kernel_size % 2 == 1
+                and kernel_size == 2
+                and i == 1
+                or kernel_size == 0
+            ):
+                kernel_size +=1
+            elif kernel_size % 2 == 1 and kernel_size == 2 and i == 2:
+                kernel_size -= 1
 
         if self.config.str_inc:
             n_strides = 1 if first else 2
@@ -242,13 +249,6 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
         #if self.config.use_residual: x = self._shortcut_layer(net, x)
 
         embedding = self._embeddings(conv)
-        '''
-        if not self.config.gradient_reversal:
-            dp_x = self.domain_predictor_layer0(embedding, lambda_)  # GradientReversalLayer
-            dp_x = self.domain_predictor_layer1(dp_x)
-            d_logits = self.domain_predictor_layer2(dp_x)
-            self.discriminator = tf.keras.Model(inputs=embedding, outputs=d_logits)
-        '''
 
         net_mean_emb = self._fcn_layer(embedding)
         for i in range(1, self.config.nb_fc_stacks):
@@ -271,6 +271,8 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
             self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma, embedding])
         else:
             self.net = tf.keras.Model(inputs=x, outputs=[output, embedding])
+
+        print(self.net.summary())
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
