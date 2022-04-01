@@ -84,7 +84,7 @@ model_cfg_cnn_stride = {
     'fc_dec' : True,
     'ker_dec' : True,
     "metrics": "r_square",
-    'factor' : 10e-4,
+    'factor' : 10e-3,
     'adaptative' : True,
     'ema': True,
     "loss": "rmse"  # huber was working great for 2020 and 2021
