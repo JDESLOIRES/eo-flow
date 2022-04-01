@@ -84,7 +84,7 @@ model_cfg_cnn_stride = {
     'fc_dec' : True,
     'ker_dec' : True,
     "metrics": "r_square",
-    'factor' : 10e-3,
+    'factor' : 10e-5,
     'adaptative' : True,
     'ema': True,
     "loss": "rmse"  # huber was working great for 2020 and 2021
@@ -103,7 +103,7 @@ x = x_train
 
 model_cnn.fit_dann(
     src_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
+    val_dataset=(x_val, y_val),
     trgt_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,

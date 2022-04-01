@@ -71,7 +71,7 @@ model_cnn.prepare()
 
 model_cnn.fit_dann_v3(
     src_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
+    val_dataset=(x_val, y_val),
     trgt_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
