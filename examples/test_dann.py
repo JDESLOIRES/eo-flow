@@ -39,7 +39,9 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+#path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2021/fold_1'
+
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -95,7 +97,7 @@ self = model_cnn
 x = x_train
 
 
-model_cnn.fit_dann_v2(
+model_cnn.fit_dann(
     src_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
     trgt_dataset=(x_test, y_test),
