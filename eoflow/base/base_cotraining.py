@@ -127,9 +127,9 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         return model
 
 
-    def _init_weights_pretrained(self, x,  shift, noise, model_directory = './'):
+    def _init_weights_pretrained(self, x,  shift, noise, finetuning = 0, set_fc_layers = False, model_directory = './'):
 
-        self.build(inputs_shape= x.shape)
+        self.build(inputs_shape=x.shape)
         _ = self(tf.zeros([k for k in x.shape]))
         model = self._init_model_pretrain(x, shift, noise)
         _ = model(tf.zeros([k for k in x.shape]))
@@ -139,7 +139,15 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         # Load weights encoder
         for i in range(self.config.nb_conv_stacks * 4 + 2):
             self.layers[0].layers[i].set_weights(model.layers[i].get_weights())
+            if finetuning:
+                if i <= finetuning*4:
+                    self.layers[0].layers[i].trainable = False
 
+        if self.config.multioutput or self.config.loss in ['gaussian', 'laplacian'] or not set_fc_layers:
+            return
+        elif set_fc_layers:
+            for i in range(self.config.nb_conv_stacks * 4 + 2, len(self.layers[0].layers)):
+                self.layers[0].layers[i].set_weights(model.layers[i].get_weights())
 
     def multitask_pretraining(self,
                               train_dataset,

@@ -44,6 +44,7 @@ x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
 
+
 '''
 from sklearn.ensemble import RandomForestRegressor
 model = RandomForestRegressor(max_depth=8)
@@ -62,17 +63,16 @@ model_cfg_cnn_stride = {
     "nb_fc_neurons": 32,
     "metrics": "r_square",
     "loss": "mse",
-    'factor' : 0.05
+    'factor' : 10e-4,
+    'adaptative' : True
 }
 
 
 model_cnn = cnn_tempnets_functional.TempDANN(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-self = model_cnn
-x = x_train
-self(x)
-self.summary()
+
+
 
 model_cnn.fit_dann_v3(
     src_dataset=(x_train, y_train),

@@ -128,7 +128,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
         n_strides = fields.Int(missing=1, description='Value of convolutional strides.')
         nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
-        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected tf.keras.layers.')
+        nb_fc_stacks = fields.Int(missing=2, description='Number of fully connected tf.keras.layers.')
         fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
 
         emb_layer = fields.String(missing='GlobalAveragePooling1D', validate=OneOf(['Flatten', 'GlobalAveragePooling1D', 'GlobalMaxPooling1D']),
@@ -146,10 +146,12 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decrease kernels')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
-        ema = fields.Bool(missing=True, description='Decrease dense neurons')
+        ema = fields.Bool(missing=True, description='Apply EMA')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
         batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
         factor = fields.Float(missing=1.0, description='Factor to multiply lambda for DANN.')
+        adaptative = fields.Bool(missing=True, description='Adaptative lambda for DANN')
+        finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
 
     def _cnn_layer(self, net, i = 0, first = False):
 

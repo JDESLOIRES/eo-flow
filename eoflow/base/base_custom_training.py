@@ -71,13 +71,15 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                         y_preds = self.call(x_batch_train, training=True)
 
                     cost = self.loss(y_batch_train, y_preds)
+                    cost += sum(self.losses)
 
                 if n_forget and tf.greater(tf.shape(x_batch_train)[0], size_batch -1):
                     cost = tf.sort(cost, direction='DESCENDING')
                     cost = cost[n_forget:]
+
                 cost = tf.reduce_mean(cost)
 
-            #cost += sum(self.losses)
+
             grads = tape.gradient(cost, self.trainable_variables)
 
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
@@ -167,9 +169,13 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         for epoch in range(num_epochs + 1):
             x_train_, y_train_ = shuffle(x_train, y_train)
             if patience and epoch >= patience:
-                if forget and feat_noise:
+                if self.config.finetuning:
+                    for i in range(len(self.layers[0].layers)):
+                        self.layers[0].layers[i].trainable = True
+                if forget:
                     n_forget = forget
-                x_train_, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
+                if sdev_label or fillgaps or shift_step:
+                    x_train_, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 

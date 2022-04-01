@@ -110,6 +110,8 @@ class TempDANN(BaseCustomTempnetsModel, BaseModelAdaptV3):
         nb_conv_filters = fields.Int(missing=64, description='Number of convolutional filters.')
         factor = fields.Float(missing=1.0, description='Keep probability used in dropout tf.keras.layers.')
         nb_fc_neurons = fields.Int(missing=64, description='Number of convolutional filters.')
+        adaptative = fields.Bool(missing=True, description='Adaptative lambda for DANN')
+        ema = fields.Bool(missing=True, description='Apply EMA')
 
     def __init__(self, config, **kwargs):
         BaseCustomTempnetsModel.__init__(self, config, **kwargs)

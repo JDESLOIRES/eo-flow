@@ -48,6 +48,10 @@ class BaseModelAdaptV2(BaseModelAdapt):
             grads_task = gradients_task.gradient(enc_loss, self.trainable_variables)
             grads_disc = gradients_task.gradient(disc_loss, self.discriminator.trainable_variables)
 
+            cost += sum(self.losses)
+            enc_loss += sum(self.discriminator.losses) + sum(self.losses)
+            disc_loss += sum(self.discriminator.losses)
+
             # Update weights
             opt_op_task = self.optimizer.apply_gradients(zip(grads_task, self.trainable_variables))
             if self.config.ema:
@@ -89,39 +93,45 @@ class BaseModelAdaptV2(BaseModelAdapt):
                     sdev_label=0,
                     fillgaps = 0,
                     reduce_lr=False,
-                    pretraining_path = None,
                     function=np.min):
 
-        train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
+        train_loss, val_loss, val_acc, test_loss, test_acc, \
+        disc_loss, task_loss = ([np.inf] if function == np.min else [-np.inf] for i in range(7))
+
         x_s, y_s = src_dataset
         x_t, y_t = trgt_dataset
-        x_t, y_t = self._assign_missing_obs(x_s, x_t, y_t)
+        x_t_, y_t_ = self._assign_missing_obs(x_s, x_t, y_t)
 
         self._get_task(x_s)
         self._get_discriminator(x_s)
 
         x_v, y_v = val_dataset
         val_ds = tf.data.Dataset.from_tensor_slices((x_v.astype('float32'), y_v.astype('float32'))).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_t.astype('float32'), y_t.astype('float32'))).batch(batch_size)
 
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
         wait = 0
 
         _ = self(tf.zeros([k for k in x_s.shape]))
 
-        if pretraining_path:
-            self._init_weights_pretrained(pretraining_path)
-            for var in self.optimizer.variables():
-                var.assign(tf.zeros_like(var))
-
         for epoch in range(num_epochs + 1):
 
-            x_s, y_s, x_t, y_t = shuffle(x_s, y_s, x_t, y_t)
-            if patience and epoch >= patience and sdev_label:
-                x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
-                x_t, _ = data_augmentation(x_t, y_t, shift_step, feat_noise, sdev_label, fillgaps)
+            x_s, y_s, x_t_, y_t_ = shuffle(x_s, y_s, x_t_, y_t_)
+            if patience and epoch >= patience:
+                if self.config.finetuning:
+                    for i in range(len(self.layers[0].layers)):
+                        self.layers[0].layers[i].trainable = True
 
-            train_ds = self._init_dataset_training(x_s, y_s, x_t, y_t, batch_size)
-            lambda_ = self._get_lambda(self.config.factor, num_epochs, epoch)
+                if sdev_label or fillgaps or shift_step:
+                    x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
+                    x_t_, _ = data_augmentation(x_t_, y_t_, shift_step, feat_noise, sdev_label, fillgaps)
+
+            train_ds = self._init_dataset_training(x_s, y_s, x_t_, y_t_, batch_size)
+
+            if self.config.adaptative:
+                lambda_ = self._get_lambda(self.config.factor, num_epochs, epoch)
+            else:
+                lambda_ = self.config.factor
 
             self.trainstep_dann_v2(train_ds, lambda_)
             task_loss_epoch = self.task.loss_metric.result().numpy()
@@ -141,12 +151,21 @@ class BaseModelAdaptV2(BaseModelAdapt):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
+                self.valstep_dann_v2(test_ds)
+                test_loss_epoch = self.loss_metric.result().numpy()
+                test_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
+
                 print(
-                    "Epoch {0}: Task loss {1}, Enc loss {2}, Disc loss {3}, Val loss {4}, Val acc {5}".format(
+                    "Epoch {0}: Task loss {1}, Enc loss {2}, Disc loss {3}, Val loss {4}, Val acc {5}, Test loss {6}, Test acc {7}".format(
                         str(epoch),
                         str(task_loss_epoch), str(enc_loss_epoch), str(disc_loss_epoch),
-                        str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4))
+                        str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
+                        str(round(test_loss_epoch, 4)), str(round(test_acc_result, 4))
                     ))
+
+
 
                 if (function is np.min and val_loss_epoch < function(val_loss)
                         or function is np.max and val_loss_epoch > function(val_loss)):
@@ -162,8 +181,11 @@ class BaseModelAdaptV2(BaseModelAdapt):
         self.save_weights(os.path.join(model_directory, 'last_model'))
 
         # History of the training
-        losses = dict(train_loss_results=train_loss,
-                      val_loss_results=val_acc
+        # History of the training
+        losses = dict(train_loss_results=train_loss[1:],
+                      val_loss_results=val_acc[1:],
+                      disc_loss_results=disc_loss[1:],
+                      task_loss_results=task_loss[1:]
                       )
         with open(os.path.join(model_directory, 'history.pickle'), 'wb') as d:
             pickle.dump(losses, d, protocol=pickle.HIGHEST_PROTOCOL)
