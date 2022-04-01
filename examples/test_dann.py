@@ -39,7 +39,7 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-year = '2018'
+year = '2021'
 #path = '/home/johann/Documents/Syngenta/cleaned_V2/' + year
 path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/' + year + '/fold_1'
 
@@ -49,11 +49,12 @@ y_train = np.load(os.path.join(path, 'training_y.npy'))
 x_val = npy_concatenate(path, 'val_x')
 y_val = np.load(os.path.join(path, 'val_y.npy'))
 
+
 x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
-# x_train = np.concatenate([x_train, x_val], axis = 0)
-# y_train = np.concatenate([y_train, y_val], axis = 0)
+x_train = np.concatenate([x_train, x_val], axis = 0)
+y_train = np.concatenate([y_train, y_val], axis = 0)
 
 
 '''

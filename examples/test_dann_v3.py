@@ -45,18 +45,9 @@ y_val = np.load(os.path.join(path, 'val_y.npy'))
 x_test = npy_concatenate(path, 'test_x')
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
+x_train = np.concatenate([x_train, x_val], axis = 0)
+y_train = np.concatenate([y_train, y_val], axis = 0)
 
-
-'''
-from sklearn.ensemble import RandomForestRegressor
-model = RandomForestRegressor(max_depth=8)
-x_train = x_train.reshape((x_train.shape[0],x_train.shape[1]*x_train.shape[2]))
-x_test = x_test.reshape((x_test.shape[0],x_test.shape[1]*x_test.shape[2]))
-model.fit(x_train, y_train)
-preds = model.predict(x_test)
-r2_score(y_test, preds)
-
-'''
 
 model_cfg_cnn_stride = {
     "learning_rate": 10e-4,
