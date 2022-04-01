@@ -64,7 +64,7 @@ model_cfg_cnn_stride = {
     "metrics": "r_square",
     "loss": "mse",
     'factor' : 10e-4,
-    'adaptative' : True
+    'adaptative' : False
 }
 
 
@@ -79,6 +79,7 @@ model_cnn.fit_dann_v3(
     val_dataset=(x_test, y_test),
     trgt_dataset=(x_test, y_test),
     num_epochs=500,
+    alpha_=0,
     save_steps=5,
     batch_size=12,
     patience=50,

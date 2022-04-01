@@ -20,7 +20,8 @@ class BaseModelAdaptV3(BaseModelAdapt):
 
     def trainstep_dann_v3(self,
                           train_ds,
-                          lambda_=1.0):
+                          lambda_=1.0,
+                          alpha_ = 1.0):
 
         cost_disc = np.array([])
         cost_task = np.array([])
@@ -37,7 +38,7 @@ class BaseModelAdaptV3(BaseModelAdapt):
                                            np.tile([0., 1.], [tf.shape(yt)[0], 1])]).astype('float32')
                 y_disc = np.vstack([ys_disc, yt_disc])
                 disc_loss = self._loss_dom_func(y_disc, domain_labels)
-                loss = cost + lambda_ * disc_loss
+                loss = alpha_ * cost + lambda_ * disc_loss
 
 
             grads = gradients_task.gradient(loss, self.trainable_variables)
@@ -76,6 +77,7 @@ class BaseModelAdaptV3(BaseModelAdapt):
                     model_directory,
                     save_steps=10,
                     patience=30,
+                    alpha_ = 1.0,
                     shift_step=0,
                     feat_noise=0,
                     sdev_label=0,
@@ -111,10 +113,11 @@ class BaseModelAdaptV3(BaseModelAdapt):
 
             if self.config.adaptative:
                 lambda_ = self._get_lambda(self.config.factor, num_epochs, epoch)
+                alpha_ = self._get_lambda(self.config.factor, num_epochs, epoch)/self.config.factor
             else:
                 lambda_ = 1.0 * self.config.factor
 
-            task_loss_epoch, disc_loss_epoch = self.trainstep_dann_v3(train_ds, lambda_)
+            task_loss_epoch, disc_loss_epoch = self.trainstep_dann_v3(train_ds, lambda_, alpha_)
             enc_loss_epoch = self.loss_metric.result().numpy()
 
             train_loss.append(enc_loss_epoch)
