@@ -39,7 +39,6 @@ class BaseModelAdaptV3(BaseModelAdapt):
                 disc_loss = self._loss_dom_func(y_disc, domain_labels)
                 loss = cost + lambda_ * disc_loss
 
-
             grads = gradients_task.gradient(loss, self.trainable_variables)
             # Update weights
             opt_op_task = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))

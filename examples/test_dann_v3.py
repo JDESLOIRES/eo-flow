@@ -32,9 +32,9 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
-
-#path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/2019/fold_1'
+year = '2019'
+#path = '/home/johann/Documents/Syngenta/cleaned_V2/' + year
+path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/' + year + '/fold_1'
 
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
@@ -66,8 +66,8 @@ model_cfg_cnn_stride = {
     "metrics": "r_square",
     "loss": "mse",
     'factor' : 10e-4,
-    'adaptative' : False,
-    'ema': False,
+    'adaptative' : True,
+    'ema': True,
     'loss' : 'rmse'
 }
 
@@ -91,15 +91,24 @@ model_cnn.fit_dann_v3(
     sdev_label=0,
     feat_noise=0,
     reduce_lr=True,
-    model_directory='/home/johann/Documents/model_16',
+    model_directory='/home/johann/Documents/DANN_v3/' + year,
 )
 
 
-#Total params: 28,570
-y, yt = model_cnn.predict(x_test)
-plt.scatter(y_test, y)
+import pickle
+history = pickle.load(open(os.path.join('/home/johann/Documents/DANN_v3/' + '2019', 'history.pickle'), 'rb'))
+history_train = pd.DataFrame(history['train_loss_results'])
+history_disc = pd.DataFrame(history['disc_loss_results'])
+history_task = pd.DataFrame(history['task_loss_results'])
+
+fig, ax = plt.subplots(figsize=(10,5))
+ax.plot(history_train.iloc[10:], color = 'red',  label='Encoder')
+ax.plot(history_task.iloc[10:], color = 'green', label = 'Task')
+ax.legend()
+ax2 = ax.twinx()
+ax2.plot(history_disc[10:], color = 'blue',  label='Disc')
+ax2.legend(loc = 'upper left')
 plt.show()
 
-r2_score(y_test, y)
-mean_absolute_error(y_test, y)
+
 model_cnn.summary()
