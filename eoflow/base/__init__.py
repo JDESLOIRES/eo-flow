@@ -7,3 +7,4 @@ from eoflow.base.base_cotraining import BaseModelCoTraining
 from eoflow.base.base_dann import BaseModelAdapt
 from eoflow.base.base_dann_v2 import BaseModelAdaptV2
 from eoflow.base.base_dann_v3 import BaseModelAdaptV3
+from eoflow.base.base_coral import BaseModelAdaptCoral

@@ -49,7 +49,7 @@ class BiRNN(BaseCustomTempnetsModel):
     def _rnn_layer(self, net, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
         RNNLayer = rnn_layers[self.config.rnn_layer]
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         layer = RNNLayer(
             units=self.config.rnn_units,
@@ -65,7 +65,7 @@ class BiRNN(BaseCustomTempnetsModel):
 
 
     def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         layer_fcn = Dense(units=self.config.nb_fc_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
@@ -148,7 +148,7 @@ class ConvLSTM(BaseCustomTempnetsModel):
 
     def _cnn_layer(self, net, i = 0):
 
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         filters = self.config.nb_conv_filters
         kernel_size = self.config.kernel_size
 
@@ -173,7 +173,7 @@ class ConvLSTM(BaseCustomTempnetsModel):
     def _rnn_layer(self, net, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
         RNNLayer = rnn_layers[self.config.rnn_layer]
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         layer = RNNLayer(
             units=self.config.rnn_units,
@@ -188,7 +188,7 @@ class ConvLSTM(BaseCustomTempnetsModel):
         return layer(net)
 
     def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         layer_fcn = Dense(units=self.config.nb_fc_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)

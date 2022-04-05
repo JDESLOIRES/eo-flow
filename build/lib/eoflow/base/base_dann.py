@@ -8,6 +8,7 @@ from tensorflow.keras.layers import Dense
 from .base_custom_training import BaseModelCustomTraining
 from eoflow.models.data_augmentation import data_augmentation
 
+
 class BaseModelAdapt(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)

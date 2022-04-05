@@ -5,7 +5,7 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3
+from eoflow.base import BaseModelTraining, BaseModelCustomTraining, BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral
 import tensorflow as tensorflow
 
 from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, CosineSim, GaussianNLL, LaplacianNLL

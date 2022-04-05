@@ -36,7 +36,7 @@ class FCNModel(BaseSegmentationModel):
         """Builds the net for input x."""
 
         x = tf.keras.layers.Input(inputs_shape[1:])
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         # Encoding path
         # the number of features of the convolutional kernels is proportional to the square of the level
@@ -154,7 +154,7 @@ class TFCNModel(BaseSegmentationModel):
     def build(self, inputs_shape):
 
         x = tf.keras.layers.Input(inputs_shape[1:])
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         num_repetitions = 1 if self.config.single_encoding_conv else 2
 
@@ -271,7 +271,7 @@ class ResUnetA(FCNModel):
     def build(self, inputs_shape):
         """Builds the net for input x."""
         x = tf.keras.layers.Input(shape=inputs_shape['features'][1:], name='features')
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         # block 1
         initial_conv = Conv2D(

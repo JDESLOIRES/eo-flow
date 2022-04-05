@@ -115,7 +115,7 @@ class TempDANN(BaseCustomTempnetsModel, BaseModelAdaptV3):
 
     def __init__(self, config, **kwargs):
         BaseCustomTempnetsModel.__init__(self, config, **kwargs)
-        drop_out = 1-self.config.keep_prob
+        drop_out = 1-self.config.keep_prob_conv
         self.encoder = TempCNNEncoder(filters=self.config.nb_conv_filters,
                                       drop_val = drop_out)
         

@@ -32,7 +32,7 @@ class MLP(BaseCustomTempnetsModel):
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
 
     def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         layer_fcn = Dense(units=self.config.nb_fc_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)

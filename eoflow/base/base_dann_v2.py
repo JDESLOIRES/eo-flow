@@ -54,10 +54,11 @@ class BaseModelAdaptV2(BaseModelAdapt):
 
             # Update weights
             opt_op_task = self.optimizer.apply_gradients(zip(grads_task, self.trainable_variables))
+            disc_op_task = self.discriminator.optimizer.apply_gradients(zip(grads_disc, self.discriminator.trainable_variables))
+
             if self.config.ema:
                 with tf.control_dependencies([opt_op_task]):
                     self.ema.apply(self.trainable_variables)
-                self.discriminator.optimizer.apply_gradients(zip(grads_disc, self.discriminator.trainable_variables))
 
             self.task.loss_metric.update_state(cost)
             self.loss_metric.update_state(enc_loss)

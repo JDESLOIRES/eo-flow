@@ -7,7 +7,8 @@ from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, \
+    BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -43,7 +44,7 @@ class TCNModel(BaseCustomTempnetsModel):
 
     def _cnn_layer(self, net):
 
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         layer = tf.keras.layers.Conv1D(filters= self.config.nb_filters,
                                        kernel_size=self.config.kernel_size,
@@ -65,7 +66,7 @@ class TCNModel(BaseCustomTempnetsModel):
         """
         x = tf.keras.layers.Input(inputs_shape[1:])
 
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
 
         net = x
 
@@ -114,7 +115,7 @@ class TCNModel(BaseCustomTempnetsModel):
         return self.net(inputs, training)
 
 
-class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
+class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral):
     """
     Implementation of the TempCNN network taken from the temporalCNN implementation
     https://github.com/charlotte-pel/temporalCNN
@@ -155,7 +156,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
 
     def _cnn_layer(self, net, i = 0, first = False):
 
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         filters = self.config.nb_conv_filters
         kernel_size = self.config.kernel_size
         n_strides = self.config.n_strides
@@ -198,7 +199,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
                                             kernel_size=3,
                                             padding='SAME', use_bias=False)(input_tensor)
         shortcut_y = tf.keras.layers.BatchNormalization()(shortcut_y)
-        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob)(shortcut_y)
+        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(shortcut_y)
         x = tf.keras.layers.Add()([shortcut_y, out_tensor])
         x = tf.keras.layers.Activation('relu')(x)
         return x
@@ -216,7 +217,7 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3):
 
 
     def _fcn_layer(self, net, i=0):
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         nb_neurons = self.config.nb_fc_neurons
         if self.config.fc_dec:
             nb_neurons /= 2**i
@@ -318,7 +319,7 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
 
     def _cnn_layer(self, net, i = 0, first = False):
 
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         filters = self.config.nb_conv_filters
         kernel_size = self.config.kernel_size
         n_strides = self.config.n_strides
@@ -360,7 +361,7 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
         return net
 
     def _fcn_layer(self, net, i=0):
-        dropout_rate = 1 - self.config.keep_prob
+        dropout_rate = 1 - self.config.keep_prob_conv
         nb_neurons = self.config.nb_fc_neurons
 
         if self.config.fc_dec:
@@ -412,9 +413,9 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
                                                    activity_regularizer=tf.keras.regularizers.l2(
                                                        self.config.activity_regularizer),
                                                    activation=self.config.output_activation)(net_std)
-            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
+            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma,embedding])
         else:
-            self.net = tf.keras.Model(inputs=x, outputs=output)
+            self.net = tf.keras.Model(inputs=x, outputs=[output, embedding])
 
         print_summary(self.net)
 
@@ -447,31 +448,21 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         activation = fields.Str(missing='relu', description='Activation function used in final filters.')
         fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
-        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        kernel_regularizer = fields.Float(missing=0, description='L2 regularization parameter.')
         enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
-        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
+        ema = fields.Bool(missing=True, description='Apply EMA')
         fc_dec = fields.Bool(missing=False, description='Decrease dense neurons')
         ker_inc = fields.Bool(missing=False, description='Increase kernels')
         ker_dec = fields.Bool(missing=False, description='Decrease kernels')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        finetuning = fields.Bool(missing=False, description='Finetuned encoder')
 
-    def _cnn_layer(self, net, i = 1, last = False):
 
-        dropout_rate = 1 - self.config.keep_prob
-        filters = self.config.nb_conv_filters
-        kernel_size = np.array(self.config.kernel_size)
-        n_strides = self.config.n_strides
+    def _cnn_layer(self, net, filters, n_strides, kernel_size):
 
-        if self.config.enumerate:
-            filters = filters * (2**i)
-            n_strides = 1 if not last else 2
+        dropout_rate = 1 - self.config.keep_prob_conv
 
-        if self.config.ker_inc:
-            kernel_size = kernel_size * (i+1)
-
-        if self.config.ker_dec:
-            kernel_size = kernel_size // (i+1)
-            if kernel_size[0] == 0:
-                kernel_size += 1
 
         layer = tf.keras.layers.Conv2D(filters=filters,
                                        kernel_size=list(kernel_size),
@@ -487,9 +478,10 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         return layer
 
 
-    def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob
-        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+    def _fcn_layer(self, net, nb_fc_neurons):
+
+        dropout_rate = 1 - self.config.keep_prob_conv
+        layer_fcn = Dense(units=nb_fc_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
@@ -523,25 +515,25 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
-            net = self._cnn_layer(net, i)
-            net = self._cnn_layer(net, i, True)
 
-        #net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
-        #net = self._cnn_layer(net, self.config.nb_conv_stacks-1)
-        net = self._cnn_layer(net, self.config.nb_conv_stacks-1, True)
+        net = self._cnn_layer( net, 48, 2, [7,7])
+        net = self._cnn_layer(net, 64, 2, [5, 5])
+        net = self._cnn_layer(net, 96, 1, [5, 5])
+        net = self._cnn_layer(net, 128, 1, [3, 3])
+        #net = self._cnn_layer(net, 128, 1, [3, 3])
+        net = self._cnn_layer(net, 148, 1, [3, 3])
+        #net = self._cnn_layer(net, 148, 1, [3, 3])
 
-        net = self._embeddings(net)
-
-        for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net)
+        embedding = self._embeddings(net)
+        net = self._fcn_layer(embedding, 100)
+        net = self._fcn_layer(net, 50)
 
         net = Dense(units = 1,
                     activation = 'linear',
                     kernel_initializer=self.config.kernel_initializer,
                     kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
-        self.net = tf.keras.Model(inputs=x, outputs=net)
+        self.net = tf.keras.Model(inputs=x, outputs=[net, embedding])
 
         print_summary(self.net)
 
@@ -620,7 +612,7 @@ class InceptionCNN(BaseCustomTempnetsModel):
 
         x = tf.keras.layers.Concatenate(axis=2)(conv_list)
         x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(1-self.config.keep_prob)(x)
+        x = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(x)
         x = tf.keras.layers.Activation(activation='relu')(x)
         return x
 
@@ -629,7 +621,7 @@ class InceptionCNN(BaseCustomTempnetsModel):
                                             kernel_size=1,
                                             padding='SAME', use_bias=False)(input_tensor)
         shortcut_y = tf.keras.layers.BatchNormalization()(shortcut_y)
-        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob)(shortcut_y)
+        shortcut_y = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(shortcut_y)
         x = tf.keras.layers.Add()([shortcut_y, out_tensor])
         x = tf.keras.layers.Activation('relu')(x)
         return x
@@ -692,8 +684,8 @@ class TransformerCNN(BaseCustomTempnetsModel):
         x = tf.keras.layers.MultiHeadAttention(
             key_dim=self.config.head_size,
             num_heads=self.config.num_heads,
-            dropout=1-self.config.keep_prob)(x, x)
-        x = tf.keras.layers.Dropout(1-self.config.keep_prob)(x)
+            dropout=1-self.config.keep_prob_conv)(x, x)
+        x = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(x)
         res = x + inputs
 
         # Feed Forward Part
@@ -704,7 +696,7 @@ class TransformerCNN(BaseCustomTempnetsModel):
                                        strides=self.config.n_strides,
                                        kernel_size=self.config.kernel_size)(x)
             #if self.config.batch_norm: x = tf.keras.layers.BatchNormalization()(x)
-            x = tf.keras.layers.Dropout(1 - self.config.keep_prob)(x)
+            x = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(x)
             x = tf.keras.layers.Activation('relu')(x)
 
         x = tf.keras.layers.Conv1D(padding='SAME',

@@ -39,7 +39,7 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return x
 
 
-year = '2021'
+year = '2020'
 path = '/home/johann/Documents/Syngenta/cleaned_V2/' + year
 #path = '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V3/cleaner_V2_training_10_folds/' + year + '/fold_1'
 
@@ -69,7 +69,7 @@ r2_score(y_test, preds)
 '''
 
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-4,
+    "learning_rate": 10e-3,
     "keep_prob": 0.65,  # should keep 0.8
     "nb_conv_filters": 32,  # wiorks great with 32
     "nb_conv_stacks": 3,  # Nb Conv layers
@@ -84,7 +84,6 @@ model_cfg_cnn_stride = {
     'fc_dec' : True,
     'ker_dec' : True,
     "metrics": "r_square",
-    'factor' : 10e-5,
     'adaptative' : True,
     'ema': True,
     "loss": "rmse"  # huber was working great for 2020 and 2021
@@ -97,17 +96,17 @@ model_cfg_cnn_stride = {
 model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
-self = model_cnn
-x = x_train
 
 
-model_cnn.fit_dann(
+model_cnn.fit_coral(
     src_dataset=(x_train, y_train),
     val_dataset=(x_val, y_val),
     trgt_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
     batch_size=12,
+    lambda_ = 1,
+    _match_mean=0,
     patience=50,
     fillgaps=0,
     shift_step=0,
@@ -116,24 +115,3 @@ model_cnn.fit_dann(
     reduce_lr=True,
     model_directory='/home/johann/Documents/DANN/' + year
 )
-
-import pickle
-history = pickle.load(open(os.path.join('/home/johann/Documents/DANN/' + '2019', 'history.pickle'), 'rb'))
-history_train = pd.DataFrame(history['train_loss_results'])
-history_disc = pd.DataFrame(history['disc_loss_results'])
-history_task = pd.DataFrame(history['task_loss_results'])
-
-fig, ax = plt.subplots(figsize=(10,5))
-ax.plot(history_train, color = 'red',  label='Encoder')
-ax.plot(history_task, color = 'green', label = 'Task')
-ax.legend()
-ax2 = ax.twinx()
-ax2.plot(history_disc, color = 'blue',  label='Disc')
-ax2.legend(loc = 'upper left')
-plt.show()
-
-
-model_cnn.summary()
-
-########################################################################################################################
-

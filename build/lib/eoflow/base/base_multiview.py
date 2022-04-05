@@ -9,25 +9,21 @@ from .base_custom_training import BaseModelCustomTraining
 from eoflow.models.data_augmentation import data_augmentation
 
 
-class BaseModelAdapt(BaseModelCustomTraining):
+class BaseModelMultiview(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
-    def _init_models(self, x):
+    def _get_multiview_model(self, x,  model_view_2, x_2):
 
         _ = self(tf.zeros(list(x.shape)))
+        _ = model_view_2(tf.zeros(list(x_2.shape)))
+        embedding_1, embedding_2 = self.layers[0].get_layer('embedding').output, \
+                                   model_view_2.layers[0].get_layer('embedding').output
 
-        inputs = self.layers[0].input
-        encode = self.layers[0].layers[self.config.nb_conv_stacks * 4 + 1].output
+        concatenate = tf.keras.layers.Concatenate(axis=1)([ embedding_1, embedding_2])
+        net = self._fcn_layer(concatenate)
 
-        if self.config.loss in ['gaussian', 'laplacian']:
-            dense_layers = self.layers[0].layers[-2 * 2 + 1].output
-            output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
-            output_task = [self.layers[0].layers[-1].output, self.layers[0].layers[-2].output]
-        else:
-            dense_layers = self.layers[0].layers[-2].output
-            output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
-            output_task = self.layers[0].layers[-1].output
+        model = tf.keras.Model(inputs = [embedding_1, embedding_2], outputs = output_task)
 
         return inputs, encode, dense_layers, output_discriminator, output_task
 
