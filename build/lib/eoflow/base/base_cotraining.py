@@ -54,7 +54,7 @@ class BaseModelCoTraining(BaseModelCustomTraining):
                     batch_size=8, num_epochs=100,
                     loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE),
                     aux_vector_task=None,
-                    shift = 5, noise = 0.5, lambda_ = 1, proba = 0.15):
+                    shift = 4, noise = 0, lambda_ = 1, proba = 0.15):
 
         _ = self(tf.zeros(list(x.shape)))
         model = self._init_model_pretrain(x, shift, noise)

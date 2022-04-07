@@ -8,10 +8,11 @@ from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
 from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, \
-    BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral
+    BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral, BaseModelMultiview
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
+
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -44,7 +45,7 @@ class TCNModel(BaseCustomTempnetsModel):
 
     def _cnn_layer(self, net):
 
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob
 
         layer = tf.keras.layers.Conv1D(filters= self.config.nb_filters,
                                        kernel_size=self.config.kernel_size,
@@ -66,7 +67,7 @@ class TCNModel(BaseCustomTempnetsModel):
         """
         x = tf.keras.layers.Input(inputs_shape[1:])
 
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob
 
         net = x
 
@@ -115,18 +116,16 @@ class TCNModel(BaseCustomTempnetsModel):
         return self.net(inputs, training)
 
 
-class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral):
+
+class TempCNNModel(BaseCustomTempnetsModel):
     """
     Implementation of the TempCNN network taken from the temporalCNN implementation
     https://github.com/charlotte-pel/temporalCNN
     """
 
     class TempCNNModelSchema(BaseCustomTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True,
-                                 description='Keep probability used in dropout tf.keras.layers.',
-                                 example=0.5)
-        keep_prob_conv = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.',
-                                      example=1)
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        keep_prob_conv = fields.Float(missing=0.8, description='Keep probability used in dropout tf.keras.layers.')
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
@@ -171,15 +170,15 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3, B
             kernel_size = self.config.kernel_size // (i+1)
             if (
                 kernel_size != 0
-                and kernel_size % 2 == 1
-                and kernel_size == 2
+                and kernel_size % 2 == 0
                 and i == 1
                 or kernel_size == 0
+                or i == 2
+                and kernel_size == 1
             ):
-                kernel_size +=1
-            elif kernel_size % 2 == 1 and kernel_size == 2 and i == 2:
-                kernel_size -= 1
+                kernel_size += 1
 
+        print(kernel_size)
         if self.config.str_inc:
             n_strides = 1 if first else 2
 
@@ -249,8 +248,6 @@ class TempCNNModel(BaseCustomTempnetsModel,BaseModelAdaptV2, BaseModelAdaptV3, B
         conv = self._cnn_layer(net, 0, first = True)
         for i, _ in enumerate(range(self.config.nb_conv_stacks-1)):
             conv = self._cnn_layer(conv, i+1)
-
-        #if self.config.use_residual: x = self._shortcut_layer(net, x)
 
         embedding = self._embeddings(conv)
 
@@ -437,6 +434,7 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
     class HistogramCNNModel(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        keep_prob_conv = fields.Float(missing=0.8, description='Keep probability used in dropout tf.keras.layers.')
         kernel_size = fields.List(fields.Int, missing=[3,3], description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
@@ -466,7 +464,6 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
         dropout_rate = 1 - self.config.keep_prob_conv
 
-
         layer = tf.keras.layers.Conv2D(filters=filters,
                                        kernel_size=list(kernel_size),
                                        strides=n_strides,
@@ -483,7 +480,7 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
     def _fcn_layer(self, net, nb_fc_neurons):
 
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob
         layer_fcn = Dense(units=nb_fc_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
@@ -499,7 +496,7 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
     def _embeddings(self,net):
 
-        name = "embedding"
+        name = 'embedding'
         if self.config.emb_layer == 'Flatten':
             net = tf.keras.layers.Flatten(name=name)(net)
         elif self.config.emb_layer == 'GlobalAveragePooling2D':
@@ -518,18 +515,21 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
 
         net = x
+        '''
+        net = self._cnn_layer(net, self.config.nb_conv_filters, 2, [7,7])
+        net = self._cnn_layer(net, self.config.nb_conv_filters * 2, 2, [5, 5])
+        net = self._cnn_layer(net, self.config.nb_conv_filters * 4 , 2, [3, 3])
+        net = self._cnn_layer(net, self.config.nb_conv_filters * 4, 1, [3, 3])
+        '''
 
-        net = self._cnn_layer( net, 48, 2, [7,7])
-        net = self._cnn_layer(net, 64, 2, [5, 5])
-        net = self._cnn_layer(net, 96, 1, [5, 5])
-        net = self._cnn_layer(net, 128, 1, [3, 3])
-        #net = self._cnn_layer(net, 128, 1, [3, 3])
-        net = self._cnn_layer(net, 148, 1, [3, 3])
-        #net = self._cnn_layer(net, 148, 1, [3, 3])
+        net = self._cnn_layer(net, self.config.nb_conv_filters , 1, [7, 7])
+        net = self._cnn_layer(net, self.config.nb_conv_filters * 2 , 2, [3, 3])
+        net = self._cnn_layer(net, self.config.nb_conv_filters * 4, 2, [2, 2])
+        #net = self._cnn_layer(net, self.config.nb_conv_filters * 4*2, 1, [2, 2])
 
         embedding = self._embeddings(net)
-        net = self._fcn_layer(embedding, 100)
-        net = self._fcn_layer(net, 50)
+        net = self._fcn_layer(embedding, 32)
+        net = self._fcn_layer(net, 16)
 
         net = Dense(units = 1,
                     activation = 'linear',
@@ -549,15 +549,13 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
 
 
 
-
-
 class InceptionCNN(BaseCustomTempnetsModel):
     '''
     https://github.com/hfawaz/InceptionTime
     '''
 
     class InceptionCNN(BaseCustomTempnetsModel._Schema):
-        keep_prob = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
+        keep_prob_conv = fields.Float(required=True, description='Keep probability used in dropout tf.keras.layers.', example=0.5)
         kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
         nb_conv_filters = fields.Int(missing=32, description='Number of convolutional filters.')
         nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
@@ -687,8 +685,8 @@ class TransformerCNN(BaseCustomTempnetsModel):
         x = tf.keras.layers.MultiHeadAttention(
             key_dim=self.config.head_size,
             num_heads=self.config.num_heads,
-            dropout=1-self.config.keep_prob_conv)(x, x)
-        x = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(x)
+            dropout=1-self.config.keep_prob)(x, x)
+        x = tf.keras.layers.Dropout(1 - self.config.keep_prob)(x)
         res = x + inputs
 
         # Feed Forward Part
@@ -699,7 +697,7 @@ class TransformerCNN(BaseCustomTempnetsModel):
                                        strides=self.config.n_strides,
                                        kernel_size=self.config.kernel_size)(x)
             #if self.config.batch_norm: x = tf.keras.layers.BatchNormalization()(x)
-            x = tf.keras.layers.Dropout(1 - self.config.keep_prob_conv)(x)
+            x = tf.keras.layers.Dropout(1 - self.config.keep_prob)(x)
             x = tf.keras.layers.Activation('relu')(x)
 
         x = tf.keras.layers.Conv1D(padding='SAME',

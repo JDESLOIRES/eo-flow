@@ -34,7 +34,7 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2021'
+path = '/home/johann/Documents/Syngenta/cleaned_V2/2017'
 x_train = npy_concatenate(path, 'training_x')
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
@@ -74,7 +74,7 @@ model_cfg_cnn_stride = {
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
     "kernel_size" : 7,
-    "n_strides" :1,
+    "n_strides" : 1,
     "padding": "CAUSAL",
     "emb_layer" : 'GlobalAveragePooling1D',
     "enumerate" : True,
@@ -95,6 +95,7 @@ model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
+model_cnn.summary
 self = model_cnn
 x = x_train
 y = y_train
@@ -151,7 +152,6 @@ model_cnn.fit(
     reduce_lr = True,
     model_directory='/home/johann/Documents/model_16_',
 )
-
 
 
 

@@ -32,7 +32,8 @@ def ts_concatenate(path, prefix='training_x', T=30):
     x = reshape_array(x, T)
     return x
 
-path = '/home/johann/Documents/Syngenta/Histograms/2020'
+path = '/home/johann/Documents/Syngenta/test_multiview/4D_2021/fold_1/'
+
 x_train = npy_concatenate(path, 'training_x')
 x_train[np.isnan(x_train)] = 0
 plt.imshow(x_train[10,:,:,12], origin = 'lower')
@@ -66,11 +67,7 @@ np.mean(x_train.flatten())
 model_cfg_cnn2d = {
     "learning_rate": 10e-4,
     "keep_prob" : 0.5,
-    "nb_conv_filters": 16,
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 128,
-    "nb_fc_stacks": 1, #Nb FCN layers
-    "kernel_size" : [2,2],
+    "nb_conv_filters": 32,
     "kernel_initializer" : 'he_normal',
     "fc_activation" : 'relu',
     "batch_norm": True,
@@ -92,6 +89,7 @@ model_cnn.prepare()
 model_cnn.train_and_evaluate(
     train_dataset=(x_train, y_train),
     val_dataset=(x_test, y_test),
+    test_dataset=(x_test, y_test),
     num_epochs=1000,
     save_steps=5,
     batch_size = 8,

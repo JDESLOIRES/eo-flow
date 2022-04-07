@@ -79,10 +79,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
                 cost = tf.reduce_mean(cost)
 
-
             grads = tape.gradient(cost, self.trainable_variables)
-
             opt_op = self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+
             self.loss_metric.update_state(cost)
 
             if self.config.ema:
@@ -157,7 +156,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         x_val, y_val = val_dataset
         x_test, y_test = test_dataset
 
-        self(tf.zeros(list(x_train.shape)))
+        _ = self(tf.zeros(list(x_train.shape)))
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
         test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)

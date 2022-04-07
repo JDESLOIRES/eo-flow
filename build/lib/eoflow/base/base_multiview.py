@@ -13,6 +13,17 @@ class BaseModelMultiview(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
+    def _assign_properties(self, model):
+        model.optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
+        model.loss_metric = tf.keras.metrics.Mean()
+        return model
+
+    def _add_fc_layers(self, net, nb_neurons, dropout_rate):
+        layer_fcn = Dense(units=nb_neurons)(net)
+        layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        return tf.keras.layers.Activation('relu')(layer_fcn)
+
     def _get_multiview_model(self, x,  model_view_2, x_2):
 
         _ = self(tf.zeros(list(x.shape)))
@@ -20,229 +31,140 @@ class BaseModelMultiview(BaseModelCustomTraining):
         embedding_1, embedding_2 = self.layers[0].get_layer('embedding').output, \
                                    model_view_2.layers[0].get_layer('embedding').output
 
-        concatenate = tf.keras.layers.Concatenate(axis=1)([ embedding_1, embedding_2])
-        net = self._fcn_layer(concatenate)
+        concatenate = tf.keras.layers.Concatenate(axis=1)([embedding_1, embedding_2])
+        net = self._add_fc_layers(concatenate, 64, 0.5)
+        net = self._add_fc_layers(net, 32, 0.5)
+        output =  tf.keras.layers.Dense(1, activation='linear', name='task')(net)
+        model_multiview = tf.keras.Model(inputs = concatenate, outputs = output)
 
-        model = tf.keras.Model(inputs = [embedding_1, embedding_2], outputs = output_task)
+        model_multiview = self._assign_properties(model_multiview)
+        model_view_2 = self._assign_properties(model_view_2)
 
-        return inputs, encode, dense_layers, output_discriminator, output_task
+        return model_multiview
 
-
-    def _assign_properties(self, model):
-        model.optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
-        model.loss_metric = tf.keras.metrics.Mean()
-        return model
-
-    def _get_encoder(self, x):
-        inputs, encode, _, _, _ = self._init_models(x)
-        encoder = tf.keras.Model(inputs=inputs, outputs=encode)
-        encoder.summary()
-        self.encoder = self._assign_properties(encoder)
-
-    def _get_discriminator(self, x):
-        _, encode, _, output_discriminator, _ = self._init_models(x)
-
-        discriminator = tf.keras.Model(inputs=encode, outputs=output_discriminator)
-        discriminator.summary()
-        self.discriminator = self._assign_properties(discriminator)
-        self.discriminator.loss = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
-
-    def _get_task(self, x):
-        _, encode, _, _, output_task = self._init_models(x)
-
-        task = tf.keras.Model(inputs=encode, outputs=output_task)
-        task.summary()
-        self.task = self._assign_properties(task)
-
-    @staticmethod
-    def _init_dataset_training(x_s, y_s, x_t, y_t, batch_size):
-        x_s = x_s.astype('float32')
-        x_t = x_t.astype('float32')
-        y_s = y_s.astype('float32')
-        y_t = y_t.astype('float32')
-        return tf.data.Dataset.from_tensor_slices((x_s, y_s, x_t, y_t)).batch(batch_size)
-
-    @staticmethod
-    def _assign_missing_obs(x_s, x_t, y_t):
-        if x_t.shape[0] < x_s.shape[0]:
-            x_t, y_t = np.repeat(x_t, x_s.shape[0] // x_t.shape[0], axis=0), \
-                       np.repeat(y_t, x_s.shape[0] // x_t.shape[0])
-            num_missing = x_s.shape[0] - x_t.shape[0]
-            additional_obs = np.random.choice(x_t.shape[0], size=num_missing, replace=False)
-            x_t, y_t = np.concatenate([x_t, x_t[additional_obs,]], axis=0), \
-                       np.concatenate([y_t, y_t[additional_obs,]], axis=0)
-        return x_t, y_t
-
-    @staticmethod
-    def _get_lambda(factor, num_epochs, epoch):
-        p = float(epoch) / (num_epochs)
-        return tf.constant(factor * (2.0 / (1.0 + np.exp(-10.0 * p, dtype=np.float32)) - 1.0),
-                           dtype='float32')
 
     @tf.function
-    def trainstep_dann(self,
-                       train_ds,
-                       lambda_=1.0):
+    def trainstep_multiview(self,
+                            train_ds,
+                            model_multiview,
+                            model_view_2,
+                            lambda_ = 0.5,
+                            gamma_ = 0.5,
+                            loss = tf.keras.losses.MeanSquaredError()):
 
-        for Xs, ys, Xt, yt in train_ds:
-            with tf.GradientTape() as gradients_task, tf.GradientTape() as enc_tape, \
-                    tf.GradientTape() as disc_tape:
-                # Forward pass
-                Xs_enc = self.encoder(Xs, training=True)
-                if self.config.loss in ['gaussian', 'laplacian']:
-                    ys_pred, sigma_s = self.task.call(Xs_enc, training=True)
-                    ys_pred, sigma_s = tf.reshape(ys_pred, tf.shape(ys)), tf.reshape(sigma_s, tf.shape(ys))
-                    cost = self.loss(ys_pred, sigma_s, ys)
-                else:
-                    ys_pred = self.task.call(Xs_enc, training=True)
-                    ys_pred = tf.reshape(ys_pred, tf.shape(ys))
-                    cost = self.loss(ys, ys_pred)
+        for Xs, Xt, y in train_ds:
+            with tf.GradientTape() as enc_tape_1, \
+                    tf.GradientTape() as enc_tape_2, \
+                    tf.GradientTape() as task_tape:
 
-                Xt_enc = self.encoder.call(Xt, training=True)
+                y_1, Xs_enc = self.call(Xs, training=True)
+                y_2, Xt_enc = model_view_2(Xt, training=True)
 
-                ys_disc = self.discriminator.call(Xs_enc, training=True)
-                yt_disc = self.discriminator.call(Xt_enc, training=True)
+                data_fusion = tf.experimental.numpy.concatenate([Xs_enc, Xt_enc], axis = 1)
+                y_view = model_multiview(data_fusion, training=True)
 
-                # Compute the discriminator loss values
-                disc_loss = 0.5 * (self.discriminator.loss(tf.ones_like(ys_disc), ys_disc) +
-                                   self.discriminator.loss(tf.zeros_like(yt_disc), yt_disc))
-                loss_dann = 0.5 * (self.discriminator.loss(tf.zeros_like(ys_disc), ys_disc) +
-                                   self.discriminator.loss(tf.ones_like(yt_disc), yt_disc))
+                concatenate = self.loss(y, y_view)
+                view1_loss = self.loss(y, y_1) + lambda_ * concatenate + gamma_ * loss(y_2, y_1)
+                view2_loss = self.loss(y, y_2) + lambda_ * concatenate + gamma_ * loss(y_1, y_2)
 
-                # Compute the loss value
-                enc_loss = cost + tf.multiply(loss_dann, lambda_)
+                view1_loss += sum(self.losses)
+                view2_loss += sum(model_view_2.losses)
+                concatenate += sum(model_multiview.losses)
 
-                enc_loss = tf.reduce_mean(enc_loss)
-                disc_loss = tf.reduce_mean(disc_loss)
-                cost = tf.reduce_mean(cost)
-
-                # https://stackoverflow.com/questions/56693863/why-does-model-losses-return-regularization-losses
-                cost += sum(self.task.losses)
-                disc_loss += sum(self.discriminator.losses)
-                enc_loss += sum(self.encoder.losses)
-
-            gradients_task = gradients_task.gradient(cost, self.task.trainable_variables)
-            gradients_enc = enc_tape.gradient(enc_loss, self.encoder.trainable_variables)
-            gradients_disc = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
+            gradients_enc_1 = enc_tape_1.gradient(view1_loss, self.trainable_variables)
+            gradients_enc_2 = enc_tape_2.gradient(view2_loss, model_view_2.trainable_variables)
+            gradients_final = task_tape.gradient(concatenate, model_multiview.trainable_variables)
 
             # Update weights
-            opt_op_task = self.task.optimizer.apply_gradients(
-                zip(gradients_task, self.task.trainable_variables))
-            opt_op_enc = self.encoder.optimizer.apply_gradients(
-                zip(gradients_enc, self.encoder.trainable_variables))
-            opt_op_disc = self.discriminator.optimizer.apply_gradients(
-                zip(gradients_disc, self.discriminator.trainable_variables))
+            self.optimizer.apply_gradients(zip(gradients_enc_1, self.trainable_variables))
+            model_view_2.optimizer.apply_gradients(zip(gradients_enc_2, model_view_2.trainable_variables))
+            model_multiview.optimizer.apply_gradients(zip(gradients_final, model_multiview.trainable_variables))
 
-            if self.config.ema:
-                with tf.control_dependencies([opt_op_disc]):
-                    self.ema.apply(self.discriminator.trainable_variables)
-                with tf.control_dependencies([opt_op_enc]):
-                    self.ema.apply(self.encoder.trainable_variables)
-                with tf.control_dependencies([opt_op_task]):
-                    self.ema.apply(self.task.trainable_variables)
+            self.loss_metric.update_state(tf.reduce_mean(view1_loss))
+            model_view_2.loss_metric.update_state(tf.reduce_mean(view2_loss))
+            model_multiview.loss_metric.update_state(tf.reduce_mean(concatenate))
 
-            self.task.loss_metric.update_state(cost)
-            self.encoder.loss_metric.update_state(enc_loss)
-            self.discriminator.loss_metric.update_state(disc_loss)
 
     @tf.function
-    def valstep_dann(self, val_ds):
-        for x_batch, y_batch in val_ds:
-            x_enc = self.encoder.call(x_batch, training=False)
-            if self.config.loss in ['gaussian', 'laplacian']:
-                y_pred, sigma_ = self.task.call(x_enc, training=False)
-                y_pred, sigma_ = tf.reshape(y_pred, tf.shape(y_batch)), tf.reshape(sigma_, tf.shape(y_batch))
-                cost = self.loss(y_pred, sigma_, y_batch)
-            else:
-                y_pred = self.task.call(x_enc, training=False)
-                y_pred = tf.reshape(y_pred, tf.shape(y_batch))
-                cost = self.loss(y_batch, y_pred)
+    def valstep_multiview(self, val_ds,
+                          model_multiview,
+                          model_view_2):
+        for Xs, Xt, y in val_ds:
+            _, Xs_enc = self.call(Xs, training=False)
+            _, Xt_enc = model_view_2(Xt, training=False)
+            data_fusion = tf.experimental.numpy.concatenate([Xs_enc, Xt_enc], axis=1)
+            y_view = model_multiview.call(data_fusion, training=False)
 
-            cost = tf.reduce_mean(cost)
-            self.task.loss_metric.update_state(cost)
-            self.metric.update_state(y_batch, y_pred)
+            concatenate = tf.reduce_mean(self.loss(y, y_view))
+            self.loss_metric.update_state(concatenate)
+            self.metric.update_state(y, y_view)
 
 
-    def fit_dann(self,
-                 src_dataset,
-                 val_dataset,
-                 trgt_dataset,
-                 batch_size,
-                 num_epochs,
-                 model_directory,
-                 save_steps=10,
-                 patience=30,
-                 shift_step=0,
-                 feat_noise=0,
-                 sdev_label=0,
-                 fillgaps = 0,
-                 reduce_lr=False,
-                 function=np.min):
+    def fit_multiview(self,
+                      model_view_2,
+                      src_train_dataset,
+                      src_val_dataset,
+                      src_test_dataset,
+                      batch_size,
+                      num_epochs,
+                      model_directory,
+                      save_steps=10,
+                      patience=30,
+                      reduce_lr=True,
+                      function=np.min):
 
-        train_loss, val_loss, val_acc, test_loss, test_acc, \
-        disc_loss, task_loss = ([np.inf] if function == np.min else [-np.inf] for i in range(7))
+        view1_loss, val_loss, val_acc, test_loss, test_acc, \
+        view2_loss, multiview_loss = ([np.inf] if function == np.min else [-np.inf] for i in range(7))
 
-        x_s, y_s = src_dataset
-        x_t, y_t = trgt_dataset
-        x_t_, y_t_ = self._assign_missing_obs(x_s, x_t, y_t)
+        xs, xt, y_s = src_train_dataset
+        x_vs, xvt, y_vs = src_val_dataset
+        x_ts, xtt, y_ts = src_test_dataset
 
-        self._get_encoder(x_s)
-        self._get_task(x_s)
-        self._get_discriminator(x_s)
+        model_multiview = self._get_multiview_model(xs, model_view_2, xt)
 
-        x_v, y_v = val_dataset
-        val_ds = tf.data.Dataset.from_tensor_slices((x_v.astype('float32'), y_v.astype('float32'))).batch(batch_size)
-        test_ds = tf.data.Dataset.from_tensor_slices((x_t.astype('float32'), y_t.astype('float32'))).batch(batch_size)
+        val_ds = tf.data.Dataset.from_tensor_slices((x_vs.astype('float32'), xvt.astype('float32'), y_vs.astype('float32'))).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_ts.astype('float32'), xtt.astype('float32'), y_ts.astype('float32'))).batch(batch_size)
 
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
         wait = 0
 
-        _ = self(tf.zeros([k for k in x_s.shape]))
-
         for epoch in range(num_epochs + 1):
 
-            x_s, y_s, x_t_, y_t_ = shuffle(x_s, y_s, x_t_, y_t_)
-            if patience and epoch >= patience:
-                x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
-                x_t_, _ = data_augmentation(x_t_, y_t_, shift_step, feat_noise, sdev_label, fillgaps)
+            xs_, xt_, y_s_ = shuffle(xs, xt, y_s)
+            train_ds = tf.data.Dataset.from_tensor_slices(
+                (xs_.astype('float32'), xt_.astype('float32'), y_s_.astype('float32'))).batch(batch_size)
 
-            train_ds = self._init_dataset_training(x_s, y_s, x_t_, y_t_, batch_size)
+            self.trainstep_multiview(train_ds, model_multiview, model_view_2)
+            view1_loss_epoch = self.loss_metric.result().numpy()
+            view2_loss_epoch = model_view_2.loss_metric.result().numpy()
+            multiview_loss_epoch = model_multiview.loss_metric.result().numpy()
 
-            if self.config.adaptative:
-                lambda_ = self._get_lambda(self.config.factor, num_epochs, epoch)
-            else:
-                lambda_ = 1.0 * self.config.factor
+            view1_loss.append(view1_loss_epoch)
+            view2_loss.append(view2_loss_epoch)
+            multiview_loss.append(multiview_loss_epoch)
 
-            self.trainstep_dann(train_ds, lambda_= lambda_)
-            task_loss_epoch = self.task.loss_metric.result().numpy()
-            enc_loss_epoch = self.encoder.loss_metric.result().numpy()
-            disc_loss_epoch = self.discriminator.loss_metric.result().numpy()
-            train_loss.append(enc_loss_epoch)
-            disc_loss.append(disc_loss_epoch)
-            task_loss.append(task_loss_epoch)
-
-            self.task.loss_metric.reset_states()
-            self.encoder.loss_metric.reset_states()
-            self.discriminator.loss_metric.reset_states()
+            self.loss_metric.reset_states()
+            model_view_2.loss_metric.reset_states()
+            model_multiview.loss_metric.reset_states()
 
             if epoch % save_steps == 0:
                 wait += 1
-                self.valstep_dann(val_ds)
-                val_loss_epoch = self.task.loss_metric.result().numpy()
+                self.valstep_multiview(val_ds, model_multiview, model_view_2)
+                val_loss_epoch = self.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
-                self.task.loss_metric.reset_states()
+                self.loss_metric.reset_states()
                 self.metric.reset_states()
 
-                self.valstep_dann(test_ds)
-                test_loss_epoch = self.task.loss_metric.result().numpy()
+                self.valstep_multiview(test_ds, model_multiview, model_view_2)
+                test_loss_epoch = self.loss_metric.result().numpy()
                 test_acc_result = self.metric.result().numpy()
-                self.task.loss_metric.reset_states()
+                self.loss_metric.reset_states()
                 self.metric.reset_states()
 
                 print(
-                    "Epoch {0}: Task loss {1}, Enc loss {2}, Disc loss {3}, Val loss {4}, Val acc {5}, Test loss {6}, Test acc {7}".format(
+                    "Epoch {0}: View 1 loss {1}, View 2 loss {2}, Multiview loss {3}, Val loss {4}, Val acc {5}, Test loss {6}, Test acc {7}".format(
                         str(epoch),
-                        str(task_loss_epoch), str(enc_loss_epoch), str(disc_loss_epoch),
+                        str(view1_loss_epoch), str(view2_loss_epoch), str(multiview_loss_epoch),
                         str(round(val_loss_epoch, 4)), str(round(val_acc_result, 4)),
                         str(round(test_loss_epoch, 4)), str(round(test_acc_result, 4))
                     ))
@@ -251,19 +173,18 @@ class BaseModelMultiview(BaseModelCustomTraining):
                         or function is np.max and val_loss_epoch > function(val_loss)):
                     # wait = 0
                     print('Best score seen so far ' + str(val_loss_epoch))
-                    self.encoder.save_weights(os.path.join(model_directory, 'best_encoder_model'))
-                    self.task.save_weights(os.path.join(model_directory, 'best_task_model'))
+
                 if reduce_lr:
                     reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
 
                 val_loss.append(val_loss_epoch)
                 val_acc.append(val_acc_result)
 
-        self.encoder.save_weights(os.path.join(model_directory, 'last_encoder_model'))
-        self.task.save_weights(os.path.join(model_directory, 'last_task_model'))
+        self.save_weights(os.path.join(model_directory, 'last_model'))
+        model_view_2.save_weights(os.path.join(model_directory, 'last_model_view_2'))
+        model_multiview.save_weights(os.path.join(model_directory, 'last_model_multiview'))
+        # History of the training
 
-        # History of the training
-        # History of the training
         losses = dict(train_loss_results=train_loss[1:],
                       val_loss_results=val_acc[1:],
                       disc_loss_results=disc_loss[1:],

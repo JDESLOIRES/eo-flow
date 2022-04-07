@@ -1,213 +1,152 @@
-import requests as req
 import pandas as pd
-import time
 from datetime import datetime
-import io
+import aiohttp
+import asyncio
+from io import StringIO
+
+#https://stackoverflow.com/questions/42009202/how-to-call-a-async-function-contained-in-a-class
+
+'''
+Les nœuds de demande asynchrones rendent le contrôle au flux sans attendre de réponse. Cette action libère le thread de requête pour gérer d'autres requêtes, 
+tandis que la réponse est gérée par le nœud de réponse apparié sur un thread différent et dans une nouvelle transaction.
+'''
+#https://www.twilio.com/blog/asynchronous-http-requests-in-python-with-aiohttp
 
 
-class CEHUB_Extraction:
-    def __init__(self, queryBackbone):
+def format_query(queryBackbone,  query,
+                 start_time, end_time,
+                 coordinates, location_names):
+    '''
+    :param queryBackbone (dict)
+    :param query (dict)
+    :param start_time (str) : yyyy-mm-dd
+    :param end_time (str) : yyyy-mm-dd
+    :param coordinates : list
+    :param location_names: list
+    :return: dictionary with queryBackbone updated w.r.t start_time, end_time, coordinates and locations
+    '''
+    queryBackbone["geometry"]["geometries"] = \
+        [dict(type='MultiPoint', coordinates=coordinates, locationNames=location_names)]
+    queryBackbone["timeIntervals"] = [start_time + 'T+00:00' + '/' + end_time + 'T+00:00']
+    queryBackbone["queries"] = query
+    return queryBackbone
 
-        self.queryBackbone = queryBackbone
 
-    def format_query(self, start_time, end_time, coordinates=[(46, 0.5)], location_names=["test"]):
-        self.queryBackbone["geometry"]["geometries"] = \
-            [dict(type='MultiPoint', coordinates=coordinates, locationNames=location_names)]
-        self.queryBackbone["timeIntervals"] = [start_time + 'T+00:00' + '/' + end_time + 'T+00:00']
+def validate_time_interval(date_text):
+    '''
+    Check if date input is in the right format
+    :param date_text (str)
+    :return:
+    '''
+    try:
+        datetime.strptime(date_text, '%Y-%m-%d')
+    except ValueError:
+        raise ValueError("Incorrect data format, should be YYYY-MM-DD")
 
-    @staticmethod
-    def validate(date_text):
-        try:
-            datetime.strptime(date_text, '%Y-%m-%d')
-        except ValueError:
-            raise ValueError("Incorrect data format, should be YYYY-MM-DD")
 
-    @staticmethod
-    def url_request(jobID):
-        """
-        download the result dataset and return a DataFrame
-        if the result dataset is in csv format
-        (e.g. it exceed the rows limit in Excel)
-        then the raw text will be fixed
+async def get_jobID(session, queryBackbone, key, sleep = 1):
+    '''
 
-        input: jobID from request sent to server, see function «inviare» below
-        """
-        rawBit = req.get("http://queueresults.meteoblue.com/" + jobID)  # HTTPS not yet available
-        urlData = rawBit.content
-        return pd.read_csv(io.StringIO(urlData.decode('utf-8')))
-
-    def request_df(self, query, id_request, start_time, end_time, coordinates=None, rsuffix='mean',
-                   location_names=["test"]):
-        """
-        send requests to meteoblue server, receive responses and handle error
-
-        input: query in list format, see API syntax
-        """
-        if coordinates is None :
-            coordinates = [(46, 0.5)] #just for check
-        self.validate(start_time)
-        self.validate(end_time)
-
-        self.format_query(start_time, end_time, coordinates, location_names)
-        self.queryBackbone["queries"] = query
-
-        response = req.post("http://my.meteoblue.com/dataset/query",  # HTTPS not yet available
+    :param session:
+    :param queryBackbone:
+    :param key:
+    :param sleep:
+    :return:
+    '''
+    await asyncio.sleep(sleep)
+    async with session.post("http://my.meteoblue.com/dataset/query",
                             headers={"Content-Type": "application/json", "Accept": "application/json"},
-                            params={"apikey": "syn23wrpuwencie"},
-                            # ask the person in charge for an API key or use this one
-                            json=self.queryBackbone
-                            )
-
-        if response.status_code != 200:
-            raise Exception(response.json()["error_message"])
-        jobID = response.json()["id"]
-        print(jobID)
-        jobStatus = req.get("http://my.meteoblue.com/queue/status/" + jobID).json()[
-            "status"]  # HTTPS not yet available
-        print(jobStatus)
-        while jobStatus == "running":
-            time.sleep(20)  # pause
-            jobStatus = req.get("http://my.meteoblue.com/queue/status/" + jobID).json()["status"]
-            print(jobStatus)
-        if jobStatus != "finished":
-            raise Exception("unexpected error: relaunch query to see whether the problem persists")
-        print("converting to DataFrame")
-        return self.url_request(jobID)
-
-
-'''
-queryBackbone = {
-    "units": {"temperature": "C", "velocity": "m/s", "length": "metric"},
-    "timeIntervalsAlignment": None,
-    "runOnJobQueue": True,
-    "oneTimeIntervalPerGeometry": True,
-    "checkOnly": False,
-    "requiresJobQueue": False,
-    "geometry": {
-        "type": "GeometryCollection",
-        "geometries": None
-    },
-    "format": "csvIrregular", # best format
-    "timeIntervals":  None
-}
-
-#Query weather
-
-query = [{"domain": "ERA5", "gapFillDomain": "NEMSGLOBAL", "timeResolution": "daily",
-            "codes": [ # *derived → with caution
-                    {"code":  11, "level": "2 m above gnd","aggregation": "mean"}, # air temperature (°C)
-                    {"code":  17, "level": "2 m above gnd","aggregation": "mean"}, # Dewpoint Temperature
-                    {"code":  32, "level": "2 m above gnd","aggregation": "mean"}, # Wind Speed
-                    {"code":  52, "level": "2 m above gnd","aggregation": "mean"}, # Relative Humidity
-                    #{"code":  56, "level": "2 m above gnd"}, # Vapor Pressure Deficit
-                    #{"code":  61, "level": "sfc"}, # Precipitation Total
-                    {"code": 71, "level": "sfc","aggregation": "mean"}, # Cloud Cover Total
-                    #{"code": 191, "level": "sfc"}, # Sunshine Duration
-                    #{"code":  256, "level": "sfc"}, # Diffuse Shortwave Radiation
-                    #{"code":  260, "level": "2 m above gnd"}, # FAO Reference Evapotranspiration
-                    {"code": 1, "level": "2 m above gnd","aggregation": "mean"}, # Pressure
-                    {"code": 730, "level": "2 m above gnd","aggregation": "sum","gddBase": 8,
-                     "gddLimit": 30}, # Growing Degree Days
-                    ],
-}]
-
-#Query soil
-{
-    "units": {
-        "temperature": "C",
-        "velocity": "km/h",
-        "length": "metric",
-        "energy": "watts"
-    },
-    "geometry": {
-        "type": "Polygon",
-        "coordinates": [
-            [
-                [
-                    1.959448,
-                    43.685787
-                ],
-                [
-                    1.950384,
-                    43.678636
-                ],
-                [
-                    1.964392,
-                    43.671584
-                ],
-                [
-                    1.971945,
-                    43.674365
-                ],
-                [
-                    1.959448,
-                    43.685787
-                ]
-            ]
-        ]
-    },
-    "format": "json",
-    "timeIntervals": [
-        "2020-01-01T+00:00/2020-12-31T+00:00"
-    ],
-    "timeIntervalsAlignment": "none",
-    "queries": [
-        {
-            "domain": "SOILGRIDS2",
-            "gapFillDomain": null,
-            "timeResolution": "static",
-            "codes": [
-                { "code": 808, "level": "aggregated", "startDepth": 0, "endDepth": 150}, #bulk
-                {"code": 809, "level": "aggregated", "startDepth": 0, "endDepth": 150 },
-
-
-                ]
-
-                }
-            ]
-        }
-    ]
-}
+                            params={"apikey": key},
+                            json=queryBackbone
+                            ) as response:
+        data = await response.json()
+        print(data)
+        return data['id']
 
 
 
-# import the libraries
-import requests
-import json
+async def get_jobIDs_from_query(queryBackbone, query, ids, coordinates, years, key, time_interval = ('03-30', '11-25'), sleep = 3):
+    '''
+    :param queryBackbone:
+    :param query:
+    :param ids:
+    :param coordinates:
+    :param years:
+    :param key:
+    :param time_interval:
+    :param sleep:
+    :return:
+    '''
 
-# define the api-endpoint
-myAPIendpoint = "https://cropfact.syngentaaws.org/services/cropcalendar"
+    async def make_ids(ids, coordinates, dates):
+        for i, (id, coord, date) in enumerate(zip(ids, coordinates, dates)):
+            yield i, id, coord, date
 
-# define the header
-myHeader = {'x-api-key' : '5Bm6tpWR1Taf27uUT0EM61LlODvCjrOm30vqCrKN',
-            'cehub-api-key' : 'syng63gdwiuhiudw',
-            'Content-Type' : 'application/json'}
+    async with aiohttp.ClientSession() as session:
+        post_tasks = []
+        # prepare the coroutines that post
+        async for i, id, coord, date in make_ids(ids, coordinates, years):
+            start_time, end_time = (str(date) + "-" + time_interval[0], str(date) + "-" + time_interval[0])
+            print(start_time)
+            queryBackbone = format_query(queryBackbone, query,
+                                         start_time, end_time,
+                                         coordinates=[coord],
+                                         location_names=[id])
+            post_tasks.append(get_jobID(session, queryBackbone, key, (sleep * i)))
+        # now execute them all at once
+        jobIDs = await asyncio.gather(*post_tasks)
+        return jobIDs
 
-# define the body
-myJson_txt = (
-    '{'
-    '   "scenario": {'
-    '       "croppingArea": {'
-    '           "country": "US",'
-    '           "geometry": {'
-    '               "type": "Point",'
-    '               "coordinates": [-89.28204, 40.38502]'
-    '           }'
-    '       },'
-    '       "genotype": {'
-    '           "crop": "Corn Grain"'
-    '       },'
-    '       "management": {'
-    '            "season": "1",'
-    '            "plantingTime": "2020-02-01",'
-    '            "harvestTime": "2020-09-10"'
-    '       }'
-    '   }'
-    '}'
-)
-myBody = json.loads(myJson_txt)
 
-# send post-request and save response as response object
-myResponse = requests.post(url=myAPIendpoint, headers=myHeader, json=myBody)
-myResponse.json()
-'''
+
+async def get_request_from_jobID(jobID, sleep = 1, limit = None):
+    '''
+    :param jobID:
+    :param sleep:
+    :param limit:
+    :return:
+    '''
+    await asyncio.sleep(sleep)
+    conn = aiohttp.TCPConnector(limit=limit, ttl_dns_cache=300)
+    session = aiohttp.ClientSession(connector=conn)
+
+    async with session.get("http://queueresults.meteoblue.com/" + jobID) as response:
+        print("Status:", response.status)
+        print("Content-type:", response.headers['content-type'])
+        urlData = await response.text()
+        print(response)
+        await session.close()
+    return pd.read_csv(StringIO(urlData), sep=",", header=None)
+
+
+async def get_dataframe_from_jobIDs(jobsIDs):
+    '''
+    Define dataframe with time series data from the job ids obtained from getting http request
+    :param jobsIDs:
+    :return:
+    '''
+    async def make_jobs(jobIDs):
+        for i, x in enumerate(jobIDs):
+            yield i, x
+    async with aiohttp.ClientSession() as session:
+        post_tasks = []
+        # prepare the coroutines that post
+        async for i, jobID in make_jobs(jobsIDs):
+            post_tasks.append(get_request_from_jobID(jobID, i))
+        # now execute them all at once
+        dfs = await asyncio.gather(*post_tasks)
+        return dfs
+
+
+async def gather_with_concurrency(n, *tasks):
+    semaphore = asyncio.Semaphore(n)
+    async def sem_task(task):
+        async with semaphore:
+            return await task
+
+    return await asyncio.gather(*(sem_task(task) for task in tasks))
+
+
+
+#############################################################################################################
+#############################################################################################################
