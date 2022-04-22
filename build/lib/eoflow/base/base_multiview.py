@@ -39,6 +39,7 @@ class BaseModelMultiview(BaseModelCustomTraining):
 
         model_multiview = self._assign_properties(model_multiview)
         model_view_2 = self._assign_properties(model_view_2)
+        model_multiview.summary()
 
         return model_multiview
 

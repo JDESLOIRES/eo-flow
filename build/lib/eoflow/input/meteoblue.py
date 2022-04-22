@@ -61,7 +61,7 @@ async def get_jobIDs_from_query(queryBackbone, query, ids, coordinates, years, k
     jobIDs = []
 
     async for i, id, coord, date in make_ids(ids, coordinates, years):
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
         start_time, end_time = (str(date) + "-" + time_interval[0], str(date) + "-" + time_interval[1])
 
         queryBackbone["geometry"]["geometries"] = \
@@ -115,4 +115,3 @@ async def gather_with_concurrency(n, *tasks):
             return await task
 
     return await asyncio.gather(*(sem_task(task) for task in tasks))
-

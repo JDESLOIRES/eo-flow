@@ -41,7 +41,7 @@ async def get_jobID(queryBackbone, key, sleep = 1):
 
 
 
-async def get_jobIDs_from_query(queryBackbone, query, ids, coordinates, years, key, time_interval = ('03-30', '11-25'), sleep = 3):
+async def get_jobIDs_from_query(queryBackbone, query, ids, coordinates, years, key, time_interval = ('03-30', '11-25')):
     '''
     :param queryBackbone:
     :param query:
@@ -61,7 +61,7 @@ async def get_jobIDs_from_query(queryBackbone, query, ids, coordinates, years, k
     jobIDs = []
 
     async for i, id, coord, date in make_ids(ids, coordinates, years):
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
         start_time, end_time = (str(date) + "-" + time_interval[0], str(date) + "-" + time_interval[1])
 
         queryBackbone["geometry"]["geometries"] = \
@@ -93,8 +93,10 @@ async def get_request_from_jobID(jobID, sleep = 1, limit = None):
     :return:
     '''
     await asyncio.sleep(sleep)
+    #limit amount of simultaneously opened connections you can pass limit parameter to connector
     conn = aiohttp.TCPConnector(limit=limit, ttl_dns_cache=300)
-    session = aiohttp.ClientSession(connector=conn)
+    session = aiohttp.ClientSession(connector=conn) #ClientSession is the heart and the main entry point for all client API operations.
+    #session contains a cookie storage and connection pool, thus cookies and connections are shared between HTTP requests sent by the same session.
 
     async with session.get("http://queueresults.meteoblue.com/" + jobID) as response:
         print("Status:", response.status)
@@ -115,4 +117,3 @@ async def gather_with_concurrency(n, *tasks):
             return await task
 
     return await asyncio.gather(*(sem_task(task) for task in tasks))
-
