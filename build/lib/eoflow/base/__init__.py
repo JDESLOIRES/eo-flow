@@ -10,3 +10,4 @@ from eoflow.base.base_dann_v3 import BaseModelAdaptV3
 from eoflow.base.base_coral import BaseModelAdaptCoral
 from eoflow.base.base_multiview import BaseModelMultiview
 from eoflow.base.base_fusion import BaseModelfusion
+from eoflow.base.base_ssl import BaseModelSLLTraining

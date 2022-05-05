@@ -68,32 +68,24 @@ r2_score(y_test, preds)
 model_cfg_cnn_stride = {
     "learning_rate": 10e-3,
     "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 32, #wiorks great with 32
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 32,
+    "nb_conv_filters": 4, #wiorks great with 32
+    "nb_conv_stacks" : 4,
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
-    "kernel_size" : 7,
     "n_strides" : 1,
-    "padding": "CAUSAL",
-    "emb_layer" : 'GlobalAveragePooling1D',
-    "enumerate" : True,
-    'str_inc' : True,
+    "padding": "SAME",
     'batch_norm' : True,
     "metrics": "r_square",
-    'ker_dec' : True,
-    'fc_dec' : True,
-    #"activity_regularizer" : 1e-4,
     "loss": "mse",
-    'multioutput' : False
 }
 
 #console 1 et 3 : activation in the layer + flipout
 #console 4 et 5 : activation outsie
 #MODEL 64 128 with drop out 0.5 works great on 2019
-model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_stride)
+model_cnn = cnn_tempnets.MultiBranchCNN(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
+
 
 model_cnn.summary
 self = model_cnn

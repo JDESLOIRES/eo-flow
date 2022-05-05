@@ -17,7 +17,7 @@ tandis que la réponse est gérée par le nœud de réponse apparié sur un thre
 
 
 
-async def get_jobID(queryBackbone, key, sleep = 1):
+async def get_jobID(queryBackbone, key, sleep = 0.5):
     '''
     :param session:
     :param queryBackbone:

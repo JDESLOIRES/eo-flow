@@ -66,7 +66,7 @@ def noisy_label(y_, stdev =0.05, proba = 0.15):
     return y
 
 
-def fill_gaps(ts, rdm_number, interval = (10, 30), id_argmax = 10):
+def fill_gaps(ts, rdm_number, interval = (5, 20), id_argmax = 10):
     import random
     def nan_helper(y):
         return np.isnan(y), lambda z: z.nonzero()[0]
@@ -97,6 +97,7 @@ def fill_gaps(ts, rdm_number, interval = (10, 30), id_argmax = 10):
             np_output[:, d] = ts_nan[:-rdm_number]
 
     return np_output
+
 
 def apply_fill_gaps(x_batch, value = 2, proba = 0.15):
 

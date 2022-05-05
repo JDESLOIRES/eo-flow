@@ -75,6 +75,12 @@ class BaseModelAdapt(BaseModelCustomTraining):
             additional_obs = np.random.choice(x_t.shape[0], size=num_missing, replace=False)
             x_t, y_t = np.concatenate([x_t, x_t[additional_obs,]], axis=0), \
                        np.concatenate([y_t, y_t[additional_obs,]], axis=0)
+        else:
+            random_obs = np.random.choice(x_t.shape[0],
+                                          size=x_s.shape[0],
+                                          replace=False)
+            x_t = x_t[random_obs,]
+
         return x_t, y_t
 
     @staticmethod

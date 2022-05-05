@@ -55,12 +55,6 @@ class CustomReduceLRoP:
                  reduce_lin=False,
                  **kwargs):
 
-        ## Custom modification:  Deprecated
-        # super(ReduceLROnPlateau, self).__init__()
-
-        ## Custom modification:  Deprecated
-        # self.monitor = monitor
-
         ## Custom modification: Optimizer Error Handling
         if tf.is_tensor(optim_lr) == False:
             raise ValueError('Need optimizer !')

@@ -46,6 +46,8 @@ class BaseModelCoTraining(BaseModelCustomTraining):
         elif shift:
             model = tf.keras.Model(inputs=self.layers[0].input, outputs=output_layer_shift)
 
+        print(model.summary())
+
         return model
 
 

@@ -51,7 +51,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                    size_batch = 8,
                    lambda_ = 1):
 
-        for x_batch_train, y_batch_train in train_ds:  # tqdm
+        for x_batch_train, y_batch_train in train_ds:
+            if self.config.multibranch:
+                x_batch_train = [x_batch_train[...,i] for i in range(x_batch_train.shape[-1])]
             with tf.GradientTape() as tape:
                 if self.config.multioutput:
                     if np.any(['conv' in x.split('_') for x in self.config.keys()]):
@@ -91,6 +93,8 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
     @tf.function
     def val_step(self, val_ds, lambda_ = 1):
         for x_batch_train, y_batch_train in val_ds:
+            if self.config.multibranch:
+                x_batch_train = [x_batch_train[...,i] for i in range(x_batch_train.shape[-1])]
             if self.config.multioutput:
                 if np.any(['conv' in x.split('_') for x in self.config.keys()]):
                     y_preds, y_aux, _ = self.call(x_batch_train, training=False)
@@ -155,8 +159,11 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         x_train, y_train = train_dataset
         x_val, y_val = val_dataset
         x_test, y_test = test_dataset
-
-        _ = self(tf.zeros(list(x_train.shape)))
+        if not self.config.multibranch:
+            _ = self(tf.zeros(list(x_train.shape)))
+        else:
+            shapes = [tf.zeros(list((x_train.shape[0], x_train.shape[1], 1))) for i in range(x_train.shape[-1])]
+            _ = self(shapes)
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
         test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
