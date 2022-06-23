@@ -248,6 +248,32 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         self.loss_metric.update_state(tf.reduce_mean(total_loss))
 
 
+    def subtab_train_step(self, x1_batch, x2_batch, x3_batch, y_batch_train):
+
+
+        with tf.GradientTape(persistent=True) as tape:
+            h1,  h2, h3 = self.encoder(x1_batch, training = True), self.encoder(x2_batch, training = True), self.encoder(x3_batch,  training = True)
+            h = tf.math.reduce_mean([h1, h2, h3], 0)
+            y_pred = self.task(h, training = True)
+
+            loss_task = self.loss(y_batch_train, y_pred)
+
+        gradients = tape.gradient(loss_task, self.task.trainable_variables)
+        self.encoder.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
+        self.loss_metric.update_state(tf.reduce_mean(loss_task))
+
+    def subtab_val_step(self, x1_batch, x2_batch, x3_batch, y_batch_train):
+
+
+        h1,  h2, h3 = self.encoder(x1_batch, training = True), self.encoder(x2_batch, training = True), self.encoder(x3_batch,  training = True)
+        h = tf.math.reduce_mean([h1, h2, h3], 0)
+        y_pred = self.task(h, training = True)
+
+        loss_task = self.loss(y_batch_train, y_pred)
+        self.loss_metric.update_state(tf.reduce_mean(loss_task))
+        self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_pred)), y_pred)
+
+
     def fit_pretrain(self,
                      x_train,
                      model_directory,
@@ -263,7 +289,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         # Number of overlapping features between subsets
         n_overlap = int(overlap * n_column_subset)
         stop_idx = n_column_subset + n_overlap
-        self._init_ssl_models(input_shape=stop_idx, output_shape=450)
+        self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
 
         for ep in range(num_epochs):
             x_train_ = shuffle(x_train)
@@ -288,6 +314,96 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         losses = dict(train_loss_results=train_loss)
         with open(os.path.join(model_directory, 'history.pickle'), 'wb') as d:
             pickle.dump(losses, d, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def fit_supervised(self,
+                       train_dataset,
+                       val_dataset,
+                       test_dataset,
+                       batch_size,
+                       num_epochs,
+                       model_directory,
+                       save_steps = 10,
+                       n_subsets=3, overlap=0.75,
+                       p_m =0.3, noise_level=0.15,
+                       reduce_lr = True,
+                       function = np.min):
+
+        global val_acc_result
+        train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
+
+        x_train, y_train = train_dataset
+        x_val, y_val = val_dataset
+        x_test, y_test = test_dataset
+        train_loss = []
+
+        n_column = x_train.shape[-1]
+        n_column_subset = int(n_column / n_subsets)
+        # Number of overlapping features between subsets
+        n_overlap = int(overlap * n_column_subset)
+        stop_idx = n_column_subset + n_overlap
+
+        self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
+        self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
+
+        val_ds = tf.data.Dataset.from_tensor_slices(( x_val, y_val)).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+
+
+        _ = self.encoder(tf.zeros([0, stop_idx]))
+        _ = self.task(_)
+
+        for ep in range(num_epochs):
+            x_train_, y_train_ = shuffle(x_train, y_train)
+
+
+            x1, x2, x3 = self.subset_generator(x_train_,
+                                               n_subsets=n_subsets, overlap=overlap,
+                                               p_m=p_m, noise_level=noise_level, mode="test")
+            train_ds = tf.data.Dataset.from_tensor_slices((x1, x2, x3, y_train_)).batch(batch_size)
+
+            for x1_batch, x2_batch, x3_batch, y_batch_train in train_ds:
+                print('i')
+
+                self.subtab_train_step(x1_batch, x2_batch, x3_batch, y_batch_train, y_batch_train)
+
+            loss_epoch = self.loss_metric.result().numpy()
+            print('Epoch ' + str(ep) + ' : ' + str(loss_epoch))
+            train_loss.append(loss_epoch)
+            self.loss_metric.reset_states()
+
+            if ep%save_steps ==0:
+                for x_batch_val, y_batch_val in val_ds:
+                    x_tilde_lis_val = self.subset_generator(x_batch_val.numpy(),
+                                                         n_subsets=n_subsets, overlap=overlap,
+                                                         p_m=p_m, noise_level=noise_level, mode="test")
+
+                    concatenated_subsets_list_val = self.get_combinations_of_subsets(x_tilde_lis_val)
+                    self.subtab_val_step(concatenated_subsets_list_val, y_batch_val)
+
+                val_loss_epoch = self.loss_metric.result().numpy()
+                val_acc_result = self.metric.result().numpy()
+                self.loss_metric.reset_states()
+                self.metric.reset_states()
+                print('Val loss ' + str(ep) + ' : ' + str(val_loss_epoch))
+                print('Val acc ' + str(ep) + ' : ' + str(val_acc_result))
+
+                if (function is np.min and val_loss_epoch < function(val_loss)
+                        or function is np.max and val_loss_epoch > function(val_loss)):
+                    print('Best score seen so far ' + str(val_loss_epoch))
+                    self.encoder.save_weights(os.path.join(model_directory, 'encoder_best_model'))
+                    self.task.save_weights(os.path.join(model_directory, 'encoder_best_model'))
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
