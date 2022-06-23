@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.losses import Loss, Reduction
-import tensorflow_probability as tfp
-from keras import backend as K
+#import tensorflow_probability as tfp
+#from keras import backend as K
 
 class NegLL(Loss):
     """

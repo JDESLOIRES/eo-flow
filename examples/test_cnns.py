@@ -34,18 +34,31 @@ def npy_concatenate(path, prefix = 'training_x',T = 30):
     x = reshape_array(x, T)
     return  x
 
-path = '/home/johann/Documents/Syngenta/cleaned_V2/2017'
+path = '/home/johann/Documents/Syngenta/gdd_training_30/2021'
 x_train = npy_concatenate(path, 'training_x')
+#x_train = x_train[..., [10, -1]]
+x_train.shape
 y_train = np.load(os.path.join(path, 'training_y.npy'))
 
 x_val = npy_concatenate(path, 'val_x')
+#x_val = x_val[..., [10, -1]]
 y_val = np.load(os.path.join(path, 'val_y.npy'))
 
 x_test = npy_concatenate(path, 'test_x')
+#x_test = x_test[..., [10, -1]]
 y_test = np.load(os.path.join(path, 'test_y.npy'))
 
-x_train = np.concatenate([x_train, x_val], axis = 0)
-y_train = np.concatenate([y_train, y_val], axis = 0)
+ls_features = np.load(os.path.join(path, 'list_features_S2.npy'))
+'''
+model = RandomForestRegressor()
+x_train = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
+x_test = x_test.reshape(x_test.shape[0], x_test.shape[1] * x_test.shape[2])
+model.fit(x_train, y_train)
+preds = model.predict(x_test)
+r2_score(y_test, preds)
+'''
+#x_train = np.concatenate([x_train, x_val], axis = 0)
+#y_train = np.concatenate([y_train, y_val], axis = 0)
 
 nb_split = x_train.shape[1]//4
 
@@ -67,15 +80,19 @@ r2_score(y_test, preds)
 
 model_cfg_cnn_stride = {
     "learning_rate": 10e-3,
+    'keep_prob_conv' : 0.8,
     "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 4, #wiorks great with 32
-    "nb_conv_stacks" : 4,
+    "nb_conv_filters": 6, #wiorks great with 32
+    "nb_conv_stacks" : 3,
+    'nb_fc_neurons' : 72,
+    'kernel_size' : 7,
     "nb_fc_stacks": 2, #Nb FCN layers
     "fc_activation" : 'relu',
     "n_strides" : 1,
-    "padding": "SAME",
+    "padding": "VALID",
     'batch_norm' : True,
     "metrics": "r_square",
+    #"kernel_regularizer" : 1e-6,
     "loss": "mse",
 }
 
@@ -128,17 +145,17 @@ y_test_ = np.concatenate([y_test, y_test] , axis = 1)
 
 
 model_cnn.fit(
-    train_dataset=(x_train, y_train_),
-    val_dataset=(x_train, y_train_),
-    test_dataset=(x_test, y_test_),
+    train_dataset=(x_train, y_train),
+    val_dataset=(x_val, y_val),
+    test_dataset=(x_test, y_test),
     num_epochs=500,
     save_steps=5,
-    batch_size = 12,
+    batch_size = 32,
     function = np.min,
-    shift_step = 0, #3
-    sdev_label =0, #0.11
-    fillgaps=0,
-    feat_noise = 0, #0.2
+    shift_step = 1, #3
+    sdev_label =0.05, #0.11
+    fillgaps=1,
+    feat_noise = 0.5, #0.2
     patience = 50,
     forget = 0,
     reduce_lr = True,
@@ -154,6 +171,7 @@ plt.scatter(y_test, t)
 plt.show()
 mean_absolute_error(y_test, t)
 plt.show()
+
 import pandas as pd
 df = pd.DataFrame([t.flatten(), y_test.flatten(),np.sqrt(np.exp(_sig.flatten()))]).T
 df.columns = ['preds', 'true', 'uncertainty']

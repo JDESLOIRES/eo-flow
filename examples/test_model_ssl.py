@@ -102,6 +102,7 @@ y_train_ = np.concatenate([y_train, y_train], axis=1)
 y_train_ = np.concatenate([y_train, y_train], axis=1)
 y_test_ = np.concatenate([y_test, y_test], axis=1)
 
+
 model_cnn.fit_ssl(
     train_dataset=(x_train, y_train_),
     unl_dataset=x_train,

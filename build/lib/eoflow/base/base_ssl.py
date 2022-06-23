@@ -15,30 +15,6 @@ class BaseModelSLLTraining(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
-    def init_model(self):
-        """ Called on __init__. Keras self initialization. Create self here if does not require the inputs shape """
-        pass
-
-    def build(self, inputs_shape):
-        """ Keras method. Called once to build the self. Build the self here if the input shape is required. """
-        pass
-
-    def call(self, inputs, training=False):
-        pass
-
-
-    def prepare(self,
-                optimizer=None, loss=None, metrics=None,
-                epoch_loss_metric=None,
-                epoch_val_metric=None,
-                reduce_lr=False,
-                **kwargs):
-        """ Prepares the self for training and evaluation. This method should create the
-        optimizer, loss and metric functions and call the compile method of the self. The self
-        should provide the defaults for the optimizer, loss and metrics, which can be overriden
-        with custom arguments. """
-
-        raise NotImplementedError
 
     @tf.function
     def train_step_ssl(self,
@@ -70,6 +46,23 @@ class BaseModelSLLTraining(BaseModelCustomTraining):
             if self.config.ema:
                 with tf.control_dependencies([opt_op]):
                     self.ema.apply(self.trainable_variables)
+
+    @tf.function
+    def valstep_ssl(self,
+                    train_ds):
+
+        for x_batch_train, y_batch_train in train_ds:  # tqdm
+            with tf.GradientTape() as tape:
+
+                y_preds, _ = self.call(x_batch_train, training=False)
+
+
+                cost = self.loss(y_batch_train, y_preds)
+                cost += sum(self.losses)
+
+                cost = tf.reduce_mean(cost)
+            self.loss_metric.update_state(cost)
+            self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_preds)), y_preds)
 
 
     def fit_ssl(self,
@@ -124,8 +117,13 @@ class BaseModelSLLTraining(BaseModelCustomTraining):
                 for i in range(len(self.layers[0].layers)):
                     self.layers[0].layers[i].trainable = True
 
-            x_unl_shift, _ = data_augmentation(x_unl, np.zeros(x_unl.shape[0]),
-                                               shift_step, feat_noise, sdev_label, fillgaps)
+            if shift_step:
+                x_unl_shift, _ = data_augmentation(x_unl, np.zeros(x_unl.shape[0]),
+                                                   shift_step, feat_noise, sdev_label, fillgaps)
+            else:
+                x_unl_shift = x_unl * np.random.normal(1, 0.1, (x_unl.shape))
+
+
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, x_unl, x_unl_shift, y_train_)).batch(batch_size)
 
             self.train_step_ssl(train_ds, f_map, lambda_)
@@ -135,12 +133,12 @@ class BaseModelSLLTraining(BaseModelCustomTraining):
 
             if epoch % save_steps == 0:
                 wait +=1
-                self.val_step(val_ds)
+                self.valstep_ssl(val_ds)
                 val_loss_epoch = self.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
-                self.val_step(test_ds)
+                self.valstep_ssl(test_ds)
                 test_loss_epoch = self.loss_metric.result().numpy()
                 test_acc_result = self.metric.result().numpy()
                 self.loss_metric.reset_states()

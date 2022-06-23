@@ -8,6 +8,7 @@ import tensorflow as tf
 from . import Configurable
 from eoflow.models.callbacks import CustomReduceLRoP
 from eoflow.models.data_augmentation import data_augmentation
+from tsaug import TimeWarp, AddNoise, Pool, Convolve, Drift
 
 
 class BaseModelCustomTraining(tf.keras.Model, Configurable):
@@ -155,15 +156,22 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
 
         global val_acc_result
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
-
         x_train, y_train = train_dataset
         x_val, y_val = val_dataset
         x_test, y_test = test_dataset
+
         if not self.config.multibranch:
+
             _ = self(tf.zeros(list(x_train.shape)))
         else:
-            shapes = [tf.zeros(list((x_train.shape[0], x_train.shape[1], 1))) for i in range(x_train.shape[-1])]
-            _ = self(shapes)
+            x_dyn_train, x_dyn_val, x_dyn_test = x_train[0],x_val[0],x_test[0]
+            shapes = [tf.zeros(list((x_dyn_train.shape[0], x_dyn_train.shape[1], 1)))
+                      for i in range(x_dyn_train.shape[-1])]
+            if len(x_train)>1:
+                x_static_train, x_static_val, x_static_test = x_train[1], x_val[1], x_test[1]
+                _ = self([shapes, tf.zeros(list(x_static_train.shape))])
+            else:
+                _ = self([shapes])
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
         test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
@@ -181,7 +189,15 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 if forget:
                     n_forget = forget
                 if sdev_label or fillgaps or shift_step:
-                    x_train_, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
+                    _, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
+
+                    my_augmenter = (
+                            AddNoise(scale=0.05) @ 0.5
+                            + Drift(max_drift=(0.025, 0.1)) @ 0.5
+                            #+ Pool(size=1) @ 0.5
+                    )
+
+                    x_train_ = my_augmenter.augment(x_train_)
 
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
 

@@ -16,7 +16,7 @@ class EmbeddingEstimator(BaseEstimator,RegressorMixin):
 
     def fit(self, x,y):
         x = self.get_embeddings(x)
-        self.estimator.fit(x, y)
+        self.estimator.fit(x, y,,
         self.estimator_fitted = True
         return self
 

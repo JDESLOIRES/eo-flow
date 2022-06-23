@@ -11,3 +11,5 @@ from eoflow.base.base_coral import BaseModelAdaptCoral
 from eoflow.base.base_multiview import BaseModelMultiview
 from eoflow.base.base_fusion import BaseModelfusion
 from eoflow.base.base_ssl import BaseModelSLLTraining
+from eoflow.base.base_multibranch import BaseModelMultibranch
+from eoflow.base.base_self_supervised import BaseModelSelfTraining

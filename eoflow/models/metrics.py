@@ -111,7 +111,7 @@ class RSquared(InitializableMetric):
 
     def init_from_config(self, model_config=None):
         super().init_from_config(model_config)
-        self.metric = tfa.metrics.RSquare(dtype=tf.float32, y_shape=(1,))
+        self.metric = tfa.metrics.RSquare(dtype=tf.float32)
 
     def update_state(self, y_true, y_pred):
         self.assert_initialized()

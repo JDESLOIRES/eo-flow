@@ -18,19 +18,24 @@ class BaseModelAdapt(BaseModelCustomTraining):
         _ = self(tf.zeros(list(x.shape)))
 
         inputs = self.layers[0].input
-        encode = self.layers[0].layers[self.config.nb_conv_stacks * 4 + 1].output
+        if np.any(['conv' in x.split('_') for x in self.config.keys()]):
+            encode = self.layers[0].layers[self.config.nb_conv_stacks * 4 + 1].output
+            if self.config.loss in ['gaussian', 'laplacian']:
+                dense_layers = self.layers[0].layers[-2 * 2 + 1].output
+                output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
+                output_task = [self.layers[0].layers[-1].output, self.layers[0].layers[-2].output]
+            else:
+                dense_layers = self.layers[0].layers[-2].output
+                output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
+                output_task = self.layers[0].layers[-1].output
 
-        if self.config.loss in ['gaussian', 'laplacian']:
-            dense_layers = self.layers[0].layers[-2 * 2 + 1].output
-            output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
-            output_task = [self.layers[0].layers[-1].output, self.layers[0].layers[-2].output]
         else:
+            encode = self.layers[0].layers[(self.config.nb_fc_stacks - self.config.layer_before) * 4 ].output
             dense_layers = self.layers[0].layers[-2].output
             output_discriminator = Dense(1, activation='sigmoid', name='Discriminator')(dense_layers)
             output_task = self.layers[0].layers[-1].output
 
         return inputs, encode, dense_layers, output_discriminator, output_task
-
 
     def _assign_properties(self, model):
         model.optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
@@ -212,9 +217,11 @@ class BaseModelAdapt(BaseModelCustomTraining):
         for epoch in range(num_epochs + 1):
 
             x_s, y_s, x_t_, y_t_ = shuffle(x_s, y_s, x_t_, y_t_)
+            '''
             if patience and epoch >= patience:
                 x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
                 x_t_, _ = data_augmentation(x_t_, y_t_, shift_step, feat_noise, sdev_label, fillgaps)
+            '''
 
             train_ds = self._init_dataset_training(x_s, y_s, x_t_, y_t_, batch_size)
 

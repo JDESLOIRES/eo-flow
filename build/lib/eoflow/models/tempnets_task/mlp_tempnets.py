@@ -30,10 +30,27 @@ class MLP(BaseCustomTempnetsModel):
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+        multibranch = fields.Bool(missing=False, description='Multibranch model')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
+        reduce = fields.Bool(missing=False, description='reduce number neurons')
+        increase = fields.Bool(missing=False, description='increase number neurons')
 
-    def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob_conv
-        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+        adaptative = fields.Bool(missing=False, description='increase lr')
+        factor = fields.Float(missing=1.0, description='increase lr')
+        layer_before = fields.Int(missing=1, description='increase lr')
+
+    def _fcn_layer(self, net, i):
+
+        dropout_rate = 1 - self.config.keep_prob
+        nb_neurons = self.config.nb_fc_neurons
+        if i == 1:
+            if self.config.reduce:
+                nb_neurons = nb_neurons//2
+            elif self.config.increase:
+                nb_neurons = int(nb_neurons * 2)
+
+        layer_fcn = Dense(units=nb_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
@@ -53,15 +70,27 @@ class MLP(BaseCustomTempnetsModel):
         x = tf.keras.layers.Input(inputs_shape[1:])
         net = x
 
-        for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net)
+        for i in range(self.config.nb_fc_stacks):
+            net = self._fcn_layer(net, i)
+            if (self.config.nb_fc_stacks - (i+1)) == self.config.layer_before:
+                enc = net
 
-        net = tf.keras.layers.Dense(units = 1,
-                                    activation = 'linear',
-                                    kernel_initializer=self.config.kernel_initializer,
-                                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        output = tf.keras.layers.Dense(units=1,
+                                       activation='linear',
+                                       kernel_initializer=self.config.kernel_initializer,
+                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
 
-        self.net = tf.keras.Model(inputs=x, outputs=net)
+        if self.config.multioutput or self.config.loss in ['gaussian', 'laplacian']:
+            output_sigma = Dense(units=1,
+                                 activation='linear',
+                                 kernel_initializer=self.config.kernel_initializer,
+                                 kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+            self.net = tf.keras.Model(inputs=x, outputs=[output, output_sigma])
+
+        elif self.config.adaptative:
+            self.net = tf.keras.Model(inputs=x, outputs=[output, enc])
+        else:
+            self.net = tf.keras.Model(inputs=x, outputs=output)
 
         print_summary(self.net)
 

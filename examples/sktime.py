@@ -69,7 +69,7 @@ for year in range(2017,2022):
         rocket = Rocket(
             num_kernels=100,normalise=False)
 
-        rocket.fit(x_train)
+        rocket.fit(x_train,,
         X_train_transform = rocket.transform(x_train)
         X_test_transform = rocket.transform(x_test)
         classifier = RidgeCV(alphas=np.logspace(-1, 100, 1000)).fit(X, y)

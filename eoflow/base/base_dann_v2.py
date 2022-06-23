@@ -20,7 +20,6 @@ class BaseModelAdaptV2(BaseModelAdapt):
 
         for Xs, ys, Xt, yt in train_ds:
             with tf.GradientTape(persistent=True) as gradients_task:
-
                 if self.config.loss in ['gaussian', 'laplacian']:
                     ys_pred, sigma_s,  Xs_enc = self.call(Xs, training=True)
                     ys_pred, sigma_s = tf.reshape(ys_pred, tf.shape(ys)), tf.reshape(sigma_s, tf.shape(ys))
@@ -146,7 +145,7 @@ class BaseModelAdaptV2(BaseModelAdapt):
 
             if epoch % save_steps == 0:
                 wait += 1
-                self.val_step(val_ds)
+                self.valstep_dann_v2(val_ds)
                 val_loss_epoch = self.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
                 self.loss_metric.reset_states()
