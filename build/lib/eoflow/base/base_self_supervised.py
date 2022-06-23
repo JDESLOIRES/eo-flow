@@ -265,13 +265,26 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
     def subtab_val_step(self, x1_batch, x2_batch, x3_batch, y_batch_train):
 
 
-        h1,  h2, h3 = self.encoder(x1_batch, training = True), self.encoder(x2_batch, training = True), self.encoder(x3_batch,  training = True)
+        h1,  h2, h3 = self.encoder(x1_batch, training = False), self.encoder(x2_batch, training = False), self.encoder(x3_batch,  training = False)
         h = tf.math.reduce_mean([h1, h2, h3], 0)
-        y_pred = self.task(h, training = True)
+        y_pred = self.task(h, training = False)
 
         loss_task = self.loss(y_batch_train, y_pred)
         self.loss_metric.update_state(tf.reduce_mean(loss_task))
         self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_pred)), y_pred)
+
+    def subtab_pred_step(self, x_test, permut = True, n_subsets=3, overlap=0.75):
+
+        indices = np.random.RandomState(seed=0).permutation(x_test.shape[1])
+        if permut:
+            x_test = x_test[:,indices]
+
+        x1, x2, x3 = self.subset_generator(x_test,
+                                           n_subsets=n_subsets, overlap=overlap,
+                                           p_m=0, noise_level=0, mode="test")
+        h1,  h2, h3 = self.encoder(x1, training = False), self.encoder(x2, training = False), self.encoder(x3,  training = False)
+        h = tf.math.reduce_mean([h1, h2, h3], 0)
+        return self.task(h, training = False)
 
 
     def fit_pretrain(self,
@@ -279,6 +292,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                      model_directory,
                      batch_size =8,
                      num_epochs = 500,
+                     permut = True,
                      n_subsets=3, overlap=0.75,
                      p_m=0.3, noise_level=0.15):
 
@@ -290,6 +304,10 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         n_overlap = int(overlap * n_column_subset)
         stop_idx = n_column_subset + n_overlap
         self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
+
+        indices = np.random.RandomState(seed=0).permutation(x_train.shape[1])
+        if permut:
+            x_train = x_train[:,indices]
 
         for ep in range(num_epochs):
             x_train_ = shuffle(x_train)
@@ -326,6 +344,8 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                        n_subsets=3, overlap=0.75,
                        p_m =0.3, noise_level=0.15,
                        reduce_lr = True,
+                       patience = 50,
+                       permut = True,
                        function = np.min):
 
         global val_acc_result
@@ -334,6 +354,14 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         x_train, y_train = train_dataset
         x_val, y_val = val_dataset
         x_test, y_test = test_dataset
+
+        indices = np.random.RandomState(seed=0).permutation(x_train.shape[1])
+        if permut:
+            x_train = x_train[:,indices]
+            x_val = x_val[:, indices]
+            x_test = x_test[:, indices]
+
+
         train_loss = []
 
         n_column = x_train.shape[-1]
@@ -345,26 +373,35 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
         self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
 
-        val_ds = tf.data.Dataset.from_tensor_slices(( x_val, y_val)).batch(batch_size)
-        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+        x1_val, x2_val, x3_val = self.subset_generator(x_val,
+                                                       n_subsets=n_subsets, overlap=overlap,
+                                                       p_m=0, noise_level=0, mode="test")
+        val_ds = tf.data.Dataset.from_tensor_slices((x1_val, x2_val, x3_val, y_val)).batch(batch_size)
+        
 
+        x1_test, x2_test, x3_test = self.subset_generator(x_test,
+                                                          n_subsets=n_subsets, overlap=overlap,
+                                                          p_m=0, noise_level=0, mode="test")
+
+        test_ds = tf.data.Dataset.from_tensor_slices((x1_test, x2_test, x3_test, y_test)).batch(batch_size)
 
         _ = self.encoder(tf.zeros([0, stop_idx]))
         _ = self.task(_)
 
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
+        wait = 0
+
         for ep in range(num_epochs):
             x_train_, y_train_ = shuffle(x_train, y_train)
-
 
             x1, x2, x3 = self.subset_generator(x_train_,
                                                n_subsets=n_subsets, overlap=overlap,
                                                p_m=p_m, noise_level=noise_level, mode="test")
+
             train_ds = tf.data.Dataset.from_tensor_slices((x1, x2, x3, y_train_)).batch(batch_size)
 
             for x1_batch, x2_batch, x3_batch, y_batch_train in train_ds:
-                print('i')
-
-                self.subtab_train_step(x1_batch, x2_batch, x3_batch, y_batch_train, y_batch_train)
+                self.subtab_train_step(x1_batch, x2_batch, x3_batch, y_batch_train)
 
             loss_epoch = self.loss_metric.result().numpy()
             print('Epoch ' + str(ep) + ' : ' + str(loss_epoch))
@@ -372,13 +409,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
             self.loss_metric.reset_states()
 
             if ep%save_steps ==0:
-                for x_batch_val, y_batch_val in val_ds:
-                    x_tilde_lis_val = self.subset_generator(x_batch_val.numpy(),
-                                                         n_subsets=n_subsets, overlap=overlap,
-                                                         p_m=p_m, noise_level=noise_level, mode="test")
-
-                    concatenated_subsets_list_val = self.get_combinations_of_subsets(x_tilde_lis_val)
-                    self.subtab_val_step(concatenated_subsets_list_val, y_batch_val)
+                wait +=1
+                for x1_batch, x2_batch, x3_batch, y_batch_train in val_ds:
+                    self.subtab_val_step(x1_batch, x2_batch, x3_batch, y_batch_train)
 
                 val_loss_epoch = self.loss_metric.result().numpy()
                 val_acc_result = self.metric.result().numpy()
@@ -392,6 +425,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.encoder.save_weights(os.path.join(model_directory, 'encoder_best_model'))
                     self.task.save_weights(os.path.join(model_directory, 'encoder_best_model'))
+
+                if reduce_lr:
+                    reduce_rl_plateau.on_epoch_end(wait, val_acc_result)
+
+        self.encoder.save_weights(os.path.join(model_directory, 'encoder_last_model'))
+        self.task.save_weights(os.path.join(model_directory, 'encoder_last_model'))
 
 
 

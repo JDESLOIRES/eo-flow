@@ -48,6 +48,10 @@ model_compiled.prepare()
 
 self = model_compiled
 
+
+
+
+
 model_compiled.fit_pretrain(
     x_train=x_train,
     num_epochs=100,
@@ -63,7 +67,7 @@ model_compiled.fit_supervised(
     val_dataset=(x_val, y_val),
     test_dataset=(x_test, y_test),
     batch_size=8,
-    num_epochs=10,
+    num_epochs=100,
     model_directory='/home/johann/Documents/SSL/' + year,
     save_steps = 10,
     n_subsets=3, overlap=0.75,
