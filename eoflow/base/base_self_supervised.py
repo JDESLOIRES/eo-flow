@@ -69,12 +69,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
-        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        layer_fcn = tf.keras.layers.Dropout(1 - self.config.keep_prob)(layer_fcn)
         layer_fcn = tf.keras.layers.Activation(activation)(layer_fcn)
 
         return layer_fcn
 
-    def _init_ssl_models(self, input_shape = 262, output_shape = 450):
+    def _init_ssl_models(self, input_shape, output_shape):
         _ = self(tf.zeros(list((1, input_shape))))
 
         inputs = self.layers[0].input
