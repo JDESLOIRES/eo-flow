@@ -250,16 +250,18 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
     def subtab_train_step(self, x1_batch, x2_batch, x3_batch, y_batch_train):
 
-
         with tf.GradientTape(persistent=True) as tape:
             h1,  h2, h3 = self.encoder(x1_batch, training = True), self.encoder(x2_batch, training = True), self.encoder(x3_batch,  training = True)
             h = tf.math.reduce_mean([h1, h2, h3], 0)
             y_pred = self.task(h, training = True)
-
             loss_task = self.loss(y_batch_train, y_pred)
 
         gradients = tape.gradient(loss_task, self.task.trainable_variables)
-        self.encoder.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
+        self.task.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
+
+        gradients = tape.gradient(loss_task, self.encoder.trainable_variables)
+        self.encoder.optimizer.apply_gradients(zip(gradients, self.encoder.trainable_variables))
+
         self.loss_metric.update_state(tf.reduce_mean(loss_task))
 
     def subtab_val_step(self, x1_batch, x2_batch, x3_batch, y_batch_train):
@@ -371,6 +373,8 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         stop_idx = n_column_subset + n_overlap
 
         self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
+        _ = self.encoder(tf.zeros([0, stop_idx]))
+        _ = self.task(_)
         self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
 
         x1_val, x2_val, x3_val = self.subset_generator(x_val,
@@ -384,9 +388,6 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                                                           p_m=0, noise_level=0, mode="test")
 
         test_ds = tf.data.Dataset.from_tensor_slices((x1_test, x2_test, x3_test, y_test)).batch(batch_size)
-
-        _ = self.encoder(tf.zeros([0, stop_idx]))
-        _ = self.task(_)
 
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
         wait = 0

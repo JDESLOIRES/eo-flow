@@ -80,12 +80,12 @@ model_compiled.fit_pretrain(
 
 
 model_compiled.fit_supervised(
-    train_dataset=(x_train, y_train),
-    val_dataset=(x_val, y_val),
-    test_dataset=(x_test, y_test),
+    train_dataset=(training_x, training_y),
+    val_dataset=(val_x, val_y),
+    test_dataset=(test_x, test_y),
     batch_size=8,
     num_epochs=100,
-    model_directory='/home/johann/Documents/SSL/' + year,
+    model_directory='/home/johann/Documents/SSL/' + str(year),
     save_steps = 10,
     n_subsets=3, overlap=0.75,
     p_m =0.3, noise_level=0.15,
