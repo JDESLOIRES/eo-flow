@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 import eoflow.models.tempnets_task.mlp_tempnets as mlp_tempnets
 import numpy as np
 import os
@@ -8,8 +10,8 @@ def npy_concatenate(path, prefix='training_x', T=30):
     return np.load(path_npy + '_S2.npy')
 
 model_cfg_mlp = {
-    "learning_rate": 1e-4,
-    "keep_prob": 0.5,  # should keep 0.8
+    "learning_rate": 10e-4,
+    "keep_prob": 0.65,  # should keep 0.8
     "nb_fc_neurons": 256,
     "nb_fc_stacks": 3,  # Nb FCN layers
     "kernel_initializer": 'he_normal',
@@ -73,9 +75,9 @@ model_compiled.fit_pretrain(
     x_train=np.concatenate([training_x, val_x, test_x], axis = 0),
     num_epochs=100,
     batch_size =8,
-    n_subsets=3, overlap=0.75,
-    p_m=0.3, noise_level=0.15,
-    model_directory='/home/johann/Documents/SSL/' + str(year)
+    n_subsets=4, overlap=0.75,
+    p_m=0.2, noise_level=0.15,
+    model_directory='/home/johann/Documents/SSL_4/' + str(year)
 )
 
 
@@ -84,10 +86,15 @@ model_compiled.fit_supervised(
     val_dataset=(val_x, val_y),
     test_dataset=(test_x, test_y),
     batch_size=8,
-    num_epochs=100,
+    num_epochs=200,
     model_directory='/home/johann/Documents/SSL/' + str(year),
     save_steps = 10,
     n_subsets=3, overlap=0.75,
-    p_m =0.3, noise_level=0.15,
+    p_m =0, noise_level=0,
 )
 
+
+preds =model_compiled.subtab_pred_step(test_x)
+import matplotlib.pyplot as plt
+plt.scatter(preds, test_y)
+plt.show()

@@ -348,6 +348,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                        reduce_lr = True,
                        patience = 50,
                        permut = True,
+                       finetuning = False,
                        function = np.min):
 
         global val_acc_result
@@ -376,6 +377,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         _ = self.encoder(tf.zeros([0, stop_idx]))
         _ = self.task(_)
         self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
+        if finetuning:
+            for i in range(len(self.encoder.layers[0])):
+                self.encoder.layers[0].layers[i].trainable = False
 
         x1_val, x2_val, x3_val = self.subset_generator(x_val,
                                                        n_subsets=n_subsets, overlap=overlap,
