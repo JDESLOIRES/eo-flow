@@ -61,7 +61,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
-    def _layer_decoding(self, net, nb_neurons, dropout_rate = 0.1, activation = 'linear'):
+    def _layer_decoding(self, net, nb_neurons, activation = 'linear'):
 
         layer_fcn = Dense(units=nb_neurons,
                           kernel_initializer=self.config.kernel_initializer,
@@ -80,8 +80,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         inputs = self.layers[0].input
 
         latent = self.layers[0].layers[(self.config.nb_fc_stacks - self.config.layer_before) * 4].output
-        linear_layer1 = Dense(self.layers[0].layers[0].input.shape[-1], activation='linear', name='linear_1')(latent)
-        z = Dense(output_shape, activation='relu', name='z')(linear_layer1)
+        linear_layer1 = Dense(self.layers[0].layers[0].input.shape[-1], activation=None, name='linear_1')(latent)
+        z = tf.keras.layers.Activation('relu')(linear_layer1)
+        z = Dense(self.layers[0].layers[0].input.shape[-1], activation=None, name='linear_2')(z)
 
         decode = self._layer_decoding(latent, nb_neurons = output_shape)
 

@@ -75,9 +75,9 @@ model_compiled.fit_pretrain(
     x_train=np.concatenate([training_x, val_x, test_x], axis = 0),
     num_epochs=100,
     batch_size =8,
-    n_subsets=4, overlap=0.75,
+    n_subsets=3, overlap=0.75,
     p_m=0.2, noise_level=0.15,
-    model_directory='/home/johann/Documents/SSL_4/' + str(year)
+    model_directory='/home/johann/Documents/SSL_3_RELU/' + str(year)
 )
 
 
