@@ -4,6 +4,7 @@ import os
 
 from tensorflow.keras.layers import Dense
 from .base_custom_training import BaseModelCustomTraining
+from .base_self_supervised import BaseModelSelfTraining
 from eoflow.models.data_augmentation import data_augmentation
 import pickle
 import itertools
@@ -12,65 +13,9 @@ import helpers
 import tensorflow as tf
 from sklearn.metrics import r2_score
 
-cosine_sim_1d = tf.keras.losses.CosineSimilarity(axis=1, reduction=tf.keras.losses.Reduction.NONE)
-cosine_sim_2d = tf.keras.losses.CosineSimilarity(axis=2, reduction=tf.keras.losses.Reduction.NONE)
-
-
-def _cosine_simililarity_dim1(x, y):
-    v = cosine_sim_1d(x, y)
-    return v
-
-
-def _cosine_simililarity_dim2(x, y):
-    # x shape: (N, 1, C)
-    # y shape: (1, 2N, C)
-    # v shape: (N, 2N)
-    v = cosine_sim_2d(tf.expand_dims(x, 1), tf.expand_dims(y, 0))
-    return v
-
-
-def _dot_simililarity_dim1(x, y):
-    # x shape: (N, 1, C)
-    # y shape: (N, C, 1)
-    # v shape: (N, 1, 1)
-    v = tf.matmul(tf.expand_dims(x, 1), tf.expand_dims(y, 2))
-    return v
-
-
-def _dot_simililarity_dim2(x, y):
-    v = tf.tensordot(tf.expand_dims(x, 1), tf.expand_dims(tf.transpose(y), 0), axes=2)
-    # x shape: (N, 1, C)
-    # y shape: (1, C, 2N)
-    # v shape: (N, 2N)
-    return v
-
-def get_negative_mask(batch_size):
-    # return a mask that removes the similarity score of equal/similar images.
-    # this function ensures that only distinct pair of images get their similarity scores
-    # passed as negative examples
-    negative_mask = np.ones((batch_size, 2 * batch_size), dtype=bool)
-    for i in range(batch_size):
-        negative_mask[i, i] = 0
-        negative_mask[i, i + batch_size] = 0
-    return tf.constant(negative_mask)
-
-
-class BaseModelSelfTraining(BaseModelCustomTraining):
+class BaseModelSelfTrainingV2(BaseModelSelfTraining):
     def __init__(self, config_specs):
-        BaseModelCustomTraining.__init__(self, config_specs)
-
-    def _layer_decoding(self, net, nb_neurons, activation = 'linear'):
-
-        layer_fcn = Dense(units=nb_neurons,
-                          kernel_initializer=self.config.kernel_initializer,
-                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-        if self.config.batch_norm:
-            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
-
-        layer_fcn = tf.keras.layers.Dropout(1 - self.config.keep_prob)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(activation)(layer_fcn)
-
-        return layer_fcn
+        BaseModelSelfTrainingV2.__init__(self, config_specs)
 
     def _init_ssl_models(self, input_shape, output_shape, add_layer = False):
 
@@ -551,22 +496,6 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
         self.encoder.save_weights(os.path.join(model_directory, 'encoder_last_model'))
         self.task.save_weights(os.path.join(model_directory, 'task_last_model'))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

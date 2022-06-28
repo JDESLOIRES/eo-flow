@@ -55,7 +55,7 @@ def get_negative_mask(batch_size):
     return tf.constant(negative_mask)
 
 
-class BaseModelSelfTraining(BaseModelCustomTraining):
+class BaseModelSelfTrainingV2(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
@@ -290,12 +290,11 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
             w_loss /= np.sum(w_loss)
 
             ###########
-            #h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
-            #h = tf.math.reduce_sum(h_tilde, 0)
-            h = h_tilde[np.argmax(w_loss)]
+            h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
+            h = tf.math.reduce_sum(h_tilde, 0)
 
             y_pred = self.task(h, training = True)
-            loss_task = tf.reduce_mean(self.loss(y_batch_train, y_pred))
+            loss_task = self.loss(y_batch_train, y_pred)
 
         gradients = tape.gradient(loss_task, self.task.trainable_variables)
         self.task.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
@@ -312,9 +311,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         if w_loss is None:
             w_loss = [1 for _ in h_tilde]
 
-        #h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
-        #h = tf.math.reduce_sum(h_tilde, 0)
-        h = h_tilde[np.argmax(w_loss)]
+        h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
+
+        h = tf.math.reduce_sum(h_tilde, 0)
         y_pred = self.task(h, training = False)
 
         loss_task = self.loss(y_batch_train, y_pred)
@@ -472,10 +471,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         _ = self.task(_)
 
         self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
-        try:
-            self.task.load_weights(os.path.join(model_directory, 'task_model'))
-        except:
-            pass
+        self.task.load_weights(os.path.join(model_directory, 'task_model'))
 
         if finetuning:
             for i in range(len(self.encoder.layers)):
@@ -487,12 +483,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
         wait = 0
 
-        for epoch in range(num_epochs):
-            if patience and epoch >= patience:
-                if self.config.finetuning:
-                    for i in range(len(self.encoder.layers)):
-                        self.encoder.layers[i].trainable = True
-
+        for ep in range(num_epochs):
             x_train_, y_train_ = shuffle(x_train, y_train)
             train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
             for x_batch_train, y_batch_train in train_ds:
@@ -504,12 +495,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
             loss_epoch = self.loss_metric.result().numpy()
             train_acc_result = self.metric.result().numpy()
-            print('Epoch ' + str(epoch) + ' : ' + str(loss_epoch))
+            print('Epoch ' + str(ep) + ' : ' + str(loss_epoch))
             train_loss.append(loss_epoch)
             self.loss_metric.reset_states()
             self.metric.reset_states()
 
-            if epoch%save_steps ==0:
+            if ep%save_steps ==0:
                 wait +=1
                 w_h = self._get_weights(x_train_, y_train_, n_subsets, overlap)
                 for x_batch_train, y_batch_train in val_ds:
@@ -535,13 +526,13 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
-                print('Val loss ' + str(epoch) + ' : ' + str(val_loss_epoch))
-                print('Train acc ' + str(epoch) + ' : ' + str(val_acc_result))
-                print('Val acc ' + str(epoch) + ' : ' + str(train_acc_result))
-                print('Test acc ' + str(epoch) + ' : ' + str(test_acc_result))
+                print('Val loss ' + str(ep) + ' : ' + str(val_loss_epoch))
+                print('Train acc ' + str(ep) + ' : ' + str(val_acc_result))
+                print('Val acc ' + str(ep) + ' : ' + str(train_acc_result))
+                print('Test acc ' + str(ep) + ' : ' + str(test_acc_result))
 
-                if (function is np.min and val_loss_epoch <= function(val_loss)
-                        or function is np.max and val_loss_epoch >= function(val_loss)):
+                if (function is np.min and val_loss_epoch < function(val_loss)
+                        or function is np.max and val_loss_epoch > function(val_loss)):
                     print('Best score seen so far ' + str(val_loss_epoch))
                     self.encoder.save_weights(os.path.join(model_directory, 'encoder_best_model'))
                     self.task.save_weights(os.path.join(model_directory, 'task_best_model'))
@@ -551,31 +542,6 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
         self.encoder.save_weights(os.path.join(model_directory, 'encoder_last_model'))
         self.task.save_weights(os.path.join(model_directory, 'task_last_model'))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
