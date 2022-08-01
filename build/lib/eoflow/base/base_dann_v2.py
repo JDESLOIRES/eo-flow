@@ -53,7 +53,8 @@ class BaseModelAdaptV2(BaseModelAdapt):
 
             # Update weights
             opt_op_task = self.optimizer.apply_gradients(zip(grads_task, self.trainable_variables))
-            disc_op_task = self.discriminator.optimizer.apply_gradients(zip(grads_disc, self.discriminator.trainable_variables))
+            disc_op_task = self.discriminator.optimizer.apply_gradients(zip(grads_disc,
+                                                                            self.discriminator.trainable_variables))
 
             if self.config.ema:
                 with tf.control_dependencies([opt_op_task]):
@@ -88,10 +89,7 @@ class BaseModelAdaptV2(BaseModelAdapt):
                     model_directory,
                     save_steps=10,
                     patience=30,
-                    shift_step=0,
-                    feat_noise=0,
-                    sdev_label=0,
-                    fillgaps = 0,
+                    init_models = True,
                     reduce_lr=False,
                     function=np.min):
 
@@ -102,8 +100,16 @@ class BaseModelAdaptV2(BaseModelAdapt):
         x_t, y_t = trgt_dataset
         x_t_, y_t_ = self._assign_missing_obs(x_s, x_t, y_t)
 
-        self._get_task(x_s)
-        self._get_discriminator(x_s)
+
+        if init_models:
+            self._get_encoder(x_s)
+            self._get_task(x_s)
+            self._get_discriminator(x_s)
+
+        self.discriminator = self._assign_properties(self.discriminator)
+        self.discriminator.loss = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+        self.encoder = self._assign_properties(self.encoder)
+        self.task = self._assign_properties(self.task)
 
         x_v, y_v = val_dataset
         val_ds = tf.data.Dataset.from_tensor_slices((x_v.astype('float32'), y_v.astype('float32'))).batch(batch_size)
@@ -112,7 +118,6 @@ class BaseModelAdaptV2(BaseModelAdapt):
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
         wait = 0
 
-        _ = self(tf.zeros([k for k in x_s.shape]))
 
         for epoch in range(num_epochs + 1):
 
@@ -121,10 +126,6 @@ class BaseModelAdaptV2(BaseModelAdapt):
                 if self.config.finetuning:
                     for i in range(len(self.layers[0].layers)):
                         self.layers[0].layers[i].trainable = True
-
-                if sdev_label or fillgaps or shift_step:
-                    x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
-                    x_t_, _ = data_augmentation(x_t_, y_t_, shift_step, feat_noise, sdev_label, fillgaps)
 
             train_ds = self._init_dataset_training(x_s, y_s, x_t_, y_t_, batch_size)
 

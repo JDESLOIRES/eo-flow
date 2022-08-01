@@ -17,7 +17,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         Configurable.__init__(self, config_specs)
 
         self.net = None
-        self.ema = tf.train.ExponentialMovingAverage(decay=0.9)
+        self.ema = tf.train.ExponentialMovingAverage(decay=0.99)
         self.init_model()
 
     def init_model(self):
@@ -52,7 +52,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                    size_batch = 8,
                    lambda_ = 1):
 
-        for x_batch_train, y_batch_train in train_ds:
+        for x_batch_train, y_batch_train, y_batch_aux in train_ds:
             if self.config.multibranch:
                 x_batch_train = [x_batch_train[...,i] for i in range(x_batch_train.shape[-1])]
             with tf.GradientTape() as tape:
@@ -61,7 +61,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                         y_preds, y_aux, _ = self.call(x_batch_train, training=True)
                     else:
                         y_preds, y_aux = self.call(x_batch_train, training=True)
-                    y_true, y_aux_true = y_batch_train[:,0], y_batch_train[:,1]
+                    y_true, y_aux_true = y_batch_train, y_batch_aux
                     cost = tf.reduce_mean(self.loss(y_true, y_preds)) \
                            + lambda_ * tf.reduce_mean(self.loss(y_aux_true, y_aux))
                 elif self.config.loss in ['gaussian', 'laplacian']:
@@ -91,9 +91,9 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 with tf.control_dependencies([opt_op]):
                     self.ema.apply(self.trainable_variables)
 
-    @tf.function
+    #@tf.function
     def val_step(self, val_ds, lambda_ = 1):
-        for x_batch_train, y_batch_train in val_ds:
+        for x_batch_train, y_batch_train, y_batch_aux in val_ds:
             if self.config.multibranch:
                 x_batch_train = [x_batch_train[...,i] for i in range(x_batch_train.shape[-1])]
             if self.config.multioutput:
@@ -101,7 +101,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                     y_preds, y_aux, _ = self.call(x_batch_train, training=False)
                 else:
                     y_preds, y_aux = self.call(x_batch_train, training=False)
-                y_true, y_aux_true = y_batch_train[:, 0], y_batch_train[:, 1]
+                y_true, y_aux_true = y_batch_train, y_batch_aux
                 cost = self.loss(y_true, y_preds) \
                        + lambda_ * self.loss(y_aux_true, y_aux)
             elif self.config.loss in ['gaussian', 'laplacian']:
@@ -115,7 +115,7 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
                 cost = self.loss(y_batch_train, y_preds)
 
             self.loss_metric.update_state(tf.reduce_mean(cost))
-            self.metric.update_state(tf.reshape(y_batch_train[:,0], tf.shape(y_preds)), y_preds)
+            self.metric.update_state(y_batch_train.numpy().flatten(), y_preds.numpy().flatten())
 
     def _reduce_lr_on_plateau(self, patience=30,
                               factor=0.1,
@@ -144,10 +144,6 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             num_epochs,
             model_directory,
             save_steps=10,
-            shift_step=0,
-            feat_noise=0,
-            sdev_label=0,
-            fillgaps=0,
             patience = 30,
             lambda_ = 1,
             reduce_lr = False,
@@ -160,8 +156,16 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         x_val, y_val = val_dataset
         x_test, y_test = test_dataset
 
-        if not self.config.multibranch:
+        if self.config.multioutput:
+            y_train, y_train_aux = y_train
+            y_val, y_val_aux = y_val
+            y_test, y_test_aux = y_test
+        else:
+            y_train_aux, y_val_aux, y_test_aux = np.zeros(y_train.shape[0]), \
+                                           np.zeros(y_val.shape[0]), \
+                                           np.zeros(y_test.shape[0])
 
+        if not self.config.multibranch:
             _ = self(tf.zeros(list(x_train.shape)))
         else:
             x_dyn_train, x_dyn_val, x_dyn_test = x_train[0],x_val[0],x_test[0]
@@ -173,33 +177,23 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
             else:
                 _ = self([shapes])
 
-        val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
-        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+        val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val, y_val_aux)).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test, y_test_aux)).batch(batch_size)
 
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
         wait = 0
         n_forget = 0
 
         for epoch in range(num_epochs + 1):
-            x_train_, y_train_ = shuffle(x_train, y_train)
+            x_train_, y_train_, y_train_aux_ = shuffle(x_train, y_train, y_train_aux)
             if patience and epoch >= patience:
                 if self.config.finetuning:
                     for i in range(len(self.layers[0].layers)):
                         self.layers[0].layers[i].trainable = True
                 if forget:
                     n_forget = forget
-                if sdev_label or fillgaps or shift_step:
-                    _, y_train_ = data_augmentation(x_train_, y_train_, shift_step, feat_noise, sdev_label, fillgaps)
 
-                    my_augmenter = (
-                            AddNoise(scale=0.05) @ 0.5
-                            + Drift(max_drift=(0.025, 0.1)) @ 0.5
-                            #+ Pool(size=1) @ 0.5
-                    )
-
-                    x_train_ = my_augmenter.augment(x_train_)
-
-            train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
+            train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_, y_train_aux_)).batch(batch_size)
 
             self.train_step(train_ds, n_forget, batch_size, lambda_)
             loss_epoch = self.loss_metric.result().numpy()

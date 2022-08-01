@@ -30,15 +30,18 @@ class MLP(BaseCustomTempnetsModel):
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+
+        reduce = fields.Bool(missing=False, description='reduce number neurons')
+        increase = fields.Bool(missing=False, description='increase number neurons')
+
         multibranch = fields.Bool(missing=False, description='Multibranch model')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
         finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
-        reduce = fields.Bool(missing=False, description='reduce number neurons')
-        increase = fields.Bool(missing=False, description='increase number neurons')
 
         adaptative = fields.Bool(missing=False, description='increase lr')
         factor = fields.Float(missing=1.0, description='increase lr')
         layer_before = fields.Int(missing=1, description='increase lr')
+        n_output = fields.Int(missing=1, description='Number of output neurons.')
 
     def _fcn_layer(self, net, i):
 
@@ -75,7 +78,7 @@ class MLP(BaseCustomTempnetsModel):
             if (self.config.nb_fc_stacks - (i+1)) == self.config.layer_before:
                 enc = net
 
-        output = tf.keras.layers.Dense(units=1,
+        output = tf.keras.layers.Dense(units=self.config.n_output,
                                        activation='linear',
                                        kernel_initializer=self.config.kernel_initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
@@ -92,7 +95,99 @@ class MLP(BaseCustomTempnetsModel):
         else:
             self.net = tf.keras.Model(inputs=x, outputs=output)
 
+        self.encoder = tf.keras.Model(inputs=x, outputs=enc)
+
         print_summary(self.net)
+        print_summary(self.encoder)
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+
+
+class MLPDANN(BaseCustomTempnetsModel):
+    """
+    Implementation of the mlp network
+    """
+
+    class MLPSchema(BaseCustomTempnetsModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+        batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
+
+        reduce = fields.Bool(missing=False, description='reduce number neurons')
+        increase = fields.Bool(missing=False, description='increase number neurons')
+
+        multibranch = fields.Bool(missing=False, description='Multibranch model')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
+
+        adaptative = fields.Bool(missing=False, description='increase lr')
+        factor = fields.Float(missing=1.0, description='increase lr')
+        layer_before = fields.Int(missing=1, description='increase lr')
+
+    def _fcn_layer(self, net, i, batch_norm = False, sublayer = False):
+
+        dropout_rate = 1 - self.config.keep_prob
+        nb_neurons = self.config.nb_fc_neurons
+
+        if self.config.reduce or sublayer:
+            nb_neurons = nb_neurons//(2**i)
+        elif self.config.increase:
+            nb_neurons = int(nb_neurons * 2**i)
+
+        layer_fcn = Dense(units=nb_neurons,
+                          kernel_initializer=self.config.kernel_initializer,
+                          kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        if batch_norm:
+            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+
+        layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.activation)(layer_fcn)
+
+        return layer_fcn
+
+    def build(self, inputs_shape):
+        """ Build TCN architecture
+
+        The `inputs_shape` argument is a `(N, T*D)` tuple where `N` denotes the number of samples, `T` the number of
+        time-frames, and `D` the number of channels
+        """
+        x = tf.keras.layers.Input(inputs_shape[1:])
+        net = x
+
+        for i in range(self.config.nb_fc_stacks):
+            net = self._fcn_layer(net, i)
+
+        discriminator = self._fcn_layer(net, self.config.nb_fc_stacks-2, batch_norm = False, sublayer=True)
+        discriminator = self._fcn_layer(discriminator, self.config.nb_fc_stacks-1, batch_norm = False, sublayer=True)
+
+        output_disc = tf.keras.layers.Dense(units=2,
+                                            activation='softmax',
+                                            kernel_initializer=self.config.kernel_initializer,
+                                            kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(discriminator)
+
+        task = self._fcn_layer(net, self.config.nb_fc_stacks - 2, sublayer=True)
+        task = self._fcn_layer(task, self.config.nb_fc_stacks - 1, sublayer=True)
+        output_task = tf.keras.layers.Dense(units=1,
+                                            activation='linear',
+                                            kernel_initializer=self.config.kernel_initializer,
+                                            kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(task)
+        #######################################################################################################################
+        self.encoder = tf.keras.Model(inputs=x, outputs=net)
+        self.discriminator = tf.keras.Model(inputs=net, outputs=output_disc)
+        self.task = tf.keras.Model(inputs=net, outputs=output_task)
+        self.net = tf.keras.Model(inputs=x, outputs=[output_task, net])
+
+        print_summary(self.encoder)
+        print_summary(self.discriminator)
+        print_summary(self.task)
+
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)

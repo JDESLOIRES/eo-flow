@@ -44,23 +44,45 @@ def reshape_array(x, T=13) :
     x = np.moveaxis(x, 2, 1)
     return x
 
+
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-3,
-    'keep_prob_conv' : 0.8,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 6, #wiorks great with 32
-    "nb_conv_stacks" : 2,
-    'nb_fc_neurons' : 64,
-    'kernel_size' : 3,
-    "nb_fc_stacks": 2, #Nb FCN layers
-    "fc_activation" : 'relu',
-    'static_fc_neurons' : 64,
-    "padding": "CAUSAL",
-    'batch_norm' : True,
+    "learning_rate": 10e-4,
+    'keep_prob_conv': 0.8,
+    "keep_prob": 0.5,  # should keep 0.8
+    "nb_conv_filters": 10,  # wiorks great with 32
+    "nb_conv_stacks": 2,
+    'nb_fc_neurons': 64,
+    'kernel_size': 3,
+    "nb_fc_stacks": 2,  # Nb FCN layers
+    "fc_activation": 'relu',
+    'static_fc_neurons': 64,
+    "padding": 'SAME',
     "metrics": "r_square",
-    "kernel_regularizer" : 1e-7,
+    "kernel_regularizer": 1e-7,
     "loss": "mse",
-    "ema" : True
+    "reduce": False,
+    'str_inc': True,
+    "ema": False
+}
+
+model_cfg_rnn_stride = {
+    "learning_rate": 10e-4,
+    'keep_prob_conv': 0.8,
+    "keep_prob": 0.5,  # should keep 0.8
+    "nb_conv_filters": 10,  # wiorks great with 32
+    "nb_conv_stacks": 2,
+    'nb_fc_neurons': 64,
+    'kernel_size': 3,
+    "nb_fc_stacks": 2,  # Nb FCN layers
+    "fc_activation": 'relu',
+    'static_fc_neurons': 64,
+    "padding": 'SAME',
+    "metrics": "r_square",
+    "kernel_regularizer": 1e-7,
+    "loss": "mse",
+    "reduce": False,
+    'str_inc': True,
+    "ema": False
 }
 
 
@@ -70,6 +92,9 @@ model_cfg_cnn_stride = {
 #MODEL 64 128 with drop out 0.5 works great on 2019
 model_cnn = cnn_tempnets.MultiBranchCNN(model_cfg_cnn_stride)
 model_cnn.prepare()
+
+model_rnn = cnn_tempnets.MultiBranchCNN(model_cfg_rnn_stride)
+model_rnn.prepare()
 
 
 

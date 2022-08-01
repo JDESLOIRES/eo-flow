@@ -7,8 +7,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
 from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel, \
-    BaseModelAdapt, BaseModelAdaptV2, BaseModelAdaptV3, BaseModelAdaptCoral, BaseModelMultiview
+from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
 import tensorflow as tf
 #import tensorflow_probability as tfp
 import numpy as np
@@ -227,7 +226,7 @@ class MultiBranchCNN(BaseCustomTempnetsModel):
 
             for n_conv in range(1, self.config.nb_conv_stacks):
                 conv = self._cnn_layer(conv, kernel_size=kernel_size,
-                                       filters=self.config.nb_conv_filters*(n_conv + 1))
+                                       filters=self.config.nb_conv_filters * (n_conv + 1))
 
             list_submodels.append(tf.keras.layers.Flatten()(conv))
             list_inputs.append(x)
@@ -316,7 +315,7 @@ class TempCNNModel(BaseCustomTempnetsModel):
     def _cnn_layer(self, net, i = 0, first = False):
 
         dropout_rate = 1 - self.config.keep_prob_conv
-        filters = self.config.nb_conv_filters
+        filters = self.config.nb_units
         kernel_size = self.config.kernel_size
         n_strides = self.config.n_strides
 
@@ -477,7 +476,7 @@ class BayesTempCNNModel(BaseCustomTempnetsModel):
     def _cnn_layer(self, net, i = 0, first = False):
 
         dropout_rate = 1 - self.config.keep_prob_conv
-        filters = self.config.nb_conv_filters
+        filters = self.config.nb_units
         kernel_size = self.config.kernel_size
         n_strides = self.config.n_strides
 
@@ -679,9 +678,9 @@ class HistogramCNNModel(BaseCustomTempnetsModel):
         net = self._cnn_layer(net, self.config.nb_conv_filters * 4, 1, [3, 3])
         '''
 
-        net = self._cnn_layer(net, self.config.nb_conv_filters , 1, [7, 7])
-        net = self._cnn_layer(net, self.config.nb_conv_filters * 2 , 2, [3, 3])
-        net = self._cnn_layer(net, self.config.nb_conv_filters * 4, 2, [2, 2])
+        net = self._cnn_layer(net, self.config.nb_units, 1, [7, 7])
+        net = self._cnn_layer(net, self.config.nb_units * 2, 2, [3, 3])
+        net = self._cnn_layer(net, self.config.nb_units * 4, 2, [2, 2])
         #net = self._cnn_layer(net, self.config.nb_conv_filters * 4*2, 1, [2, 2])
 
         embedding = self._embeddings(net)
@@ -749,7 +748,7 @@ class InceptionCNN(BaseCustomTempnetsModel):
 
         conv_list = [
             tf.keras.layers.Conv1D(
-                filters=self.config.nb_conv_filters,
+                filters=self.config.nb_units,
                 kernel_size=kernel_size_,
                 strides=s,
                 padding='CAUSAL',
@@ -761,7 +760,7 @@ class InceptionCNN(BaseCustomTempnetsModel):
 
         max_pool_1 = tf.keras.layers.MaxPool1D(pool_size=3, strides=self.config.n_strides, padding='SAME')(input_tensor)
 
-        conv_6 = tf.keras.layers.Conv1D(filters=self.config.nb_conv_filters,
+        conv_6 = tf.keras.layers.Conv1D(filters=self.config.nb_units,
                                         kernel_size=1,
                                         padding='SAME',
                                         activation=activation, use_bias=False)(max_pool_1)

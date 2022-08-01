@@ -74,7 +74,7 @@ class TempDANN(BaseCustomTempnetsModel, BaseModelAdaptV3):
     def __init__(self, config, **kwargs):
         BaseCustomTempnetsModel.__init__(self, config, **kwargs)
         drop_out = 1 - self.config.keep_prob_conv
-        self.encoder = TempCNNEncoder(filters=self.config.nb_conv_filters,
+        self.encoder = TempCNNEncoder(filters=self.config.nb_units,
                                       drop_val=drop_out)
 
         self.task = Task(fc_units=self.config.nb_fc_neurons, nb_class=1,

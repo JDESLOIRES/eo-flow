@@ -63,12 +63,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
         layer_fcn = Dense(units=nb_neurons,
                           kernel_initializer=self.config.kernel_initializer,
+                          activation = activation,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-        if self.config.batch_norm:
-            layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
+        #if self.config.batch_norm:layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
-        layer_fcn = tf.keras.layers.Dropout(1 - self.config.keep_prob)(layer_fcn)
-        layer_fcn = tf.keras.layers.Activation(activation)(layer_fcn)
+        #layer_fcn = tf.keras.layers.Dropout(1 - self.config.keep_prob)(layer_fcn)
+        #layer_fcn = tf.keras.layers.Activation(activation)(layer_fcn)
 
         return layer_fcn
 
@@ -78,8 +78,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         inputs = self.layers[0].input
 
         latent = self.layers[0].layers[(self.config.nb_fc_stacks - self.config.layer_before) * 4].output
+
         linear_layer1 = Dense(self.layers[0].layers[0].input.shape[-1], activation=None, name='linear_1')(latent)
-        z = tf.keras.layers.Activation('relu')(linear_layer1)
+        z = tf.keras.layers.LeakyReLU()(linear_layer1)
         z = Dense(self.layers[0].layers[0].input.shape[-1], activation=None, name='linear_2')(z)
 
         decode = self._layer_decoding(latent, nb_neurons = output_shape, activation='linear')
@@ -112,7 +113,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
     @staticmethod
     def generate_noisy_xbar( x, noise_level = 0.1):
-        return x * np.random.normal(1, noise_level, x.shape)
+        no, dim = x.shape
+        x_bar = x + np.random.normal(0, noise_level, x.shape)
+        for i in range(dim):
+            idx = np.random.permutation(no)
+            x_bar[:, i] = x[idx, i]
+        return x_bar
 
     @staticmethod
     def process_batch(xi, xj):
@@ -123,9 +129,13 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         # Return batches
         return np.concatenate((xi, xj), axis=0)
 
-    def subset_generator(self, x, n_subsets = 3, overlap = 0.75, p_m =0, noise_level = 0, mode="train"):
+    def subset_generator(self,
+                         x_dynamic,
+                         x_static,
+                         n_subsets = 3, overlap = 0.75, p_m =0,
+                         noise_level = 0, swap = False, mode="train"):
 
-        n_column = x.shape[-1]
+        n_column = x_dynamic.shape[-1]
 
         n_column_subset = int(n_column / n_subsets)
         # Number of overlapping features between subsets
@@ -157,15 +167,20 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         # Get subset of features to create list of cropped data
         x_tilde_list = []
         for subset_column_idx in subset_column_idx_list:
-            x_bar = x[:, subset_column_idx]
+            x_bar = np.concatenate([x_dynamic[:, subset_column_idx], x_static], axis = 1)
+
             # Add noise to cropped columns - Noise types: Zero-out, Gaussian, or Swap noise
             if noise_level:
                 x_bar_noisy = self.generate_noisy_xbar(x_bar, noise_level = noise_level)
                 # Generate binary mask
                 mask = np.random.binomial(1, p_m, x_bar.shape)
-
                 # Replace selected x_bar features with the noisy ones
                 x_bar = x_bar * (1 - mask) + x_bar_noisy * mask
+            if swap:
+                indices = np.random.RandomState(seed=0).permutation(x_bar.shape[1])
+                x_bar_shifted = x_bar[:, indices]
+                mask = np.random.binomial(1, p_m, x_bar.shape)
+                x_bar = x_bar * (1 - mask) + x_bar_shifted * mask
 
             # Add the subset to the list
             x_tilde_list.append(x_bar)
@@ -199,13 +214,14 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         return h, z_, x_reco, task
 
 
-    def pretrain_step(self, concatenated_subsets_list, x_orig, kd, temperature , lambda_):
+    def pretrain_step(self, concatenated_subsets_list, x_orig, temperature, rho = 0 ):
 
         loss_contrastive = 0
         loss_reconstruction = 0
         loss_distance = 0
         loss_task = 0
-        total_loss = 0
+
+        criterion = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
         for el in concatenated_subsets_list:
             xis, xjs = el[:el.shape[0]//2], el[el.shape[0]//2:]
@@ -213,7 +229,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
             with tf.GradientTape(persistent=True) as tape:
                 his, zis, x_reco_is, task_is = self.forward(x = xis, training = True)
-                hjs, zjs, x_reco_js, task_js = self.forward(x=xjs, training=True)
+                hjs, zjs, x_reco_js, task_js = self.forward(x = xjs, training=True)
 
                 # normalize projection feature vectors
                 zis = tf.math.l2_normalize(zis, axis=1)
@@ -225,8 +241,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
                 negatives = tf.concat([zjs, zis], axis=0)
 
-                criterion = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-
+                loss_contrastive_ = 0
                 for positives in [zis, zjs]:
                     l_neg = _cosine_simililarity_dim2(positives, negatives)
 
@@ -237,16 +252,24 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                     l_neg /= temperature
 
                     logits = tf.concat([l_pos, l_neg], axis=1)
-                    loss_contrastive += criterion(y_pred=logits, y_true=labels)
 
-                loss_contrastive /= 2 * float(tf.shape(xis)[0])
-                loss_reconstruction += (self.loss(x_orig, x_reco_is) + self.loss(x_orig, x_reco_js))/2
-                loss_distance += self.loss(zjs, zis)
-                total_loss += (loss_contrastive + loss_reconstruction + loss_distance)
+                    loss_contrastive_ += criterion(y_pred=logits, y_true=labels)
 
-                if len(set(list(kd.flatten())))>1:
-                    loss_task += lambda_ * (self.loss(kd, task_js) + self.loss(kd, task_is)) / 2
-                    total_loss += loss_task
+                loss_contrastive_ /= 2 * float(tf.shape(xis)[0])
+                loss_contrastive += tf.reduce_mean(loss_contrastive_)
+                loss_reconstruction += tf.reduce_mean((self.loss(x_orig, x_reco_is) + self.loss(x_orig, x_reco_js))/2)
+
+                if rho:
+                    rho_is = tf.reduce_mean(his, axis=0)
+                    rho_js = tf.reduce_mean(hjs, axis=0)
+
+                    kl = (self.kl_divergence(rho, rho_is + 1e-10) + self.kl_divergence(rho, rho_js + 1e-10)) / 2
+                    kl = tf.reduce_sum(kl)
+                    loss_reconstruction += 0.1 * kl
+
+                loss_distance += tf.reduce_mean(self.loss(zjs, zis))
+
+                total_loss = loss_contrastive + loss_reconstruction + loss_distance
 
         gradients = tape.gradient(total_loss, self.encoder.trainable_variables)
         self.encoder.optimizer.apply_gradients(zip(gradients, self.encoder.trainable_variables))
@@ -254,21 +277,26 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         gradients = tape.gradient(loss_reconstruction, self.decoder.trainable_variables)
         self.decoder.optimizer.apply_gradients(zip(gradients, self.decoder.trainable_variables))
 
-        gradients = tape.gradient(loss_distance, self.projection.trainable_variables)
+        gradients = tape.gradient(loss_contrastive, self.projection.trainable_variables)
         self.projection.optimizer.apply_gradients(zip(gradients, self.projection.trainable_variables))
 
-        gradients = tape.gradient(loss_task, self.task.trainable_variables)
-        self.task.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
+        if loss_task>0:
+            gradients = tape.gradient(loss_task, self.task.trainable_variables)
+            self.task.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
+            self.task.loss_metric.update_state(tf.reduce_mean(loss_task))
 
-        self.loss_metric.update_state(tf.reduce_mean(total_loss))
-        self.encoder.loss_metric.update_state(tf.reduce_mean(loss_reconstruction))
-        self.projection.loss_metric.update_state(tf.reduce_mean(loss_contrastive))
-        self.task.loss_metric.update_state(tf.reduce_mean(loss_task))
+        self.loss_metric.update_state(total_loss)
+        self.encoder.loss_metric.update_state(loss_reconstruction)
+        self.projection.loss_metric.update_state(loss_contrastive)
+        self.task.loss_metric.update_state(loss_distance)
 
-    def _get_weights(self, x_train, y_train, n_subsets, overlap):
 
-        x_tilde = self.subset_generator(x_train,
+    def _get_weights(self, x_dyn_train, x_stat_train, y_train, n_subsets, overlap, swap = False):
+
+        x_tilde = self.subset_generator(x_dyn_train,
+                                        x_stat_train,
                                         n_subsets=n_subsets, overlap=overlap,
+                                        swap = swap,
                                         mode="test")
 
         h_tilde = [self.encoder(x, training=False) for x in x_tilde]
@@ -280,22 +308,24 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
         return w_loss
 
 
-    def subtab_train_step(self, x_tilde, y_batch_train):
+    def subtab_train_step(self, x_tilde, y_batch_train, kd, lambda_ = 1):
 
         with tf.GradientTape(persistent=True) as tape:
             h_tilde = [self.encoder(x, training = True) for x in x_tilde]
+
             w_loss = [tf.reduce_mean(self.loss(y_batch_train, self.task(h))).numpy() for h in h_tilde]
             w_loss /= np.sum(w_loss)
             w_loss = 1/w_loss
             w_loss /= np.sum(w_loss)
-
             ###########
-            #h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
-            #h = tf.math.reduce_sum(h_tilde, 0)
-            h = h_tilde[np.argmax(w_loss)]
+            h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
+            #h = h_tilde[np.argmax(w_loss)]
+            h = tf.math.reduce_sum(h_tilde, 0)
 
             y_pred = self.task(h, training = True)
             loss_task = tf.reduce_mean(self.loss(y_batch_train, y_pred))
+            if len(set(list(kd.flatten()))) > 1:
+                loss_task += tf.reduce_mean(lambda_ * self.loss(kd, y_pred))
 
         gradients = tape.gradient(loss_task, self.task.trainable_variables)
         self.task.optimizer.apply_gradients(zip(gradients, self.task.trainable_variables))
@@ -309,12 +339,15 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
     def subtab_val_step(self, x_tilde, y_batch_train, w_loss = None):
 
         h_tilde = [self.encoder(x, training=False) for x in x_tilde]
+
         if w_loss is None:
             w_loss = [1 for _ in h_tilde]
 
-        #h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
-        #h = tf.math.reduce_sum(h_tilde, 0)
-        h = h_tilde[np.argmax(w_loss)]
+        h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
+        #h = h_tilde[np.argmax(w_loss)]
+
+        h = tf.math.reduce_sum(h_tilde, 0)
+
         y_pred = self.task(h, training = False)
 
         loss_task = self.loss(y_batch_train, y_pred)
@@ -324,16 +357,12 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
     def subtab_pred_step(self,
                          x_test_,
                          model_directory,
-                         permut = True,
                          n_subsets=3, overlap=0.75,
                          w_loss = None
                          ):
 
         import copy
         x_test = copy.deepcopy(x_test_)
-        indices = np.random.RandomState(seed=0).permutation(x_test.shape[1])
-        if permut:
-            x_test = x_test[:,indices]
 
         n_column = x_test.shape[-1]
         n_column_subset = int(n_column / n_subsets)
@@ -346,67 +375,69 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
         x_tilde = self.subset_generator(x_test,
                                         n_subsets=n_subsets, overlap=overlap,
-                                        mode="test")
+                                        mode="test", swap = False)
 
         h_tilde = [self.encoder(x, training=False) for x in x_tilde]
         if w_loss is None:
             w_loss = [1 for _ in h_tilde]
+        #h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
 
-        h_tilde = [tf.multiply(h, w) for h, w in zip(h_tilde, w_loss)]
-        h = tf.math.reduce_sum(h_tilde, 0)
-
+        h = tf.math.reduce_max(h_tilde, 0)
 
         return self.task(h, training=False)
 
 
     def fit_pretrain(self,
-                     x_train,
+                     x_dynamic,
+                     x_static,
                      model_directory,
                      batch_size =8,
                      num_epochs = 500,
-                     permut = True,
                      n_subsets=3, overlap=0.75,
                      p_m=0.3, noise_level=0.15,
                      temperature = 1,
                      model_kd = None,
-                     lambda_ = 1):
+                     swap = False,
+                     rho = 0):
 
         train_loss = []
 
-        n_column = x_train.shape[-1]
+        n_column = x_dynamic.shape[-1]
         n_column_subset = int(n_column / n_subsets)
         # Number of overlapping features between subsets
         n_overlap = int(overlap * n_column_subset)
-        stop_idx = n_column_subset + n_overlap
-        self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1])
+        if x_static is not None:
+            stop_idx = n_column_subset + n_overlap + x_static.shape[1]
+            self._init_ssl_models(input_shape=stop_idx,
+                                  output_shape=np.concatenate([x_dynamic, x_static], axis = 1).shape[-1])
+        else:
+            stop_idx = n_column_subset + n_overlap
+            self._init_ssl_models(input_shape=stop_idx,
+                                  output_shape=x_dynamic.shape[-1])
 
         if model_kd is None:
-            y_preds = np.zeros((x_train.shape[0], 1))
-
+            y_preds = np.zeros((x_dynamic.shape[0], 1))
         elif model_kd.config.adaptative:
-            y_preds, _ = model_kd.predict(x_train)
+            y_preds, h_latent = model_kd.predict(np.concatenate([x_dynamic, x_static], axis = 1))
         else:
-            y_preds = model_kd.predict(x_train)
-
-        indices = np.random.RandomState(seed=0).permutation(x_train.shape[1])
-
-        if permut:
-            x_train = x_train[:,indices]
+            y_preds = model_kd.predict(np.concatenate([x_dynamic, x_static], axis = 1))
 
         for ep in range(num_epochs):
-            x_train_ = shuffle(x_train)
-            train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_preds)).batch(batch_size)
-            for x_batch_train, y_batch_train in train_ds:
-                x_tilde_list = self.subset_generator(x_batch_train.numpy(),
+            x_dynamic_, x_static_, y_preds_ = shuffle(x_dynamic, x_static, y_preds)
+            train_ds = tf.data.Dataset.from_tensor_slices((x_dynamic_, x_static_, y_preds_)).batch(batch_size)
+            for x_dyn_batch_train, x_stat_batch_train, y_batch_train in train_ds:
+                x_tilde_list = self.subset_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                     x_static=x_stat_batch_train.numpy(),
                                                      n_subsets = n_subsets, overlap = overlap,
+                                                     swap = swap,
                                                      p_m =p_m, noise_level = noise_level, mode="train")
 
                 concatenated_subsets_list = self.get_combinations_of_subsets(x_tilde_list)
                 self.pretrain_step(concatenated_subsets_list,
-                                   x_orig = x_batch_train.numpy(),
+                                   x_orig = np.concatenate([x_dyn_batch_train.numpy(), x_stat_batch_train.numpy()], axis = 1),
                                    temperature=temperature,
-                                   kd = y_batch_train.numpy(),
-                                   lambda_ = lambda_)
+                                   rho = rho
+                                 )
 
             loss_epoch = self.loss_metric.result().numpy()
             loss_reco = self.encoder.loss_metric.result().numpy()
@@ -441,37 +472,43 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                        p_m =0.3, noise_level=0.15,
                        reduce_lr = True,
                        patience = 50,
-                       permut = True,
                        finetuning = False,
                        add_layer = False,
+                       unfreeze = False,
+                       model_kd = None,
+                       lambda_ = 1,
                        function = np.min):
 
         global val_acc_result
         train_loss, val_loss, val_acc = ([np.inf] if function == np.min else [-np.inf] for i in range(3))
 
-        x_train, y_train = train_dataset
-        x_val, y_val = val_dataset
-        x_test, y_test = test_dataset
+        x_dyn_train, x_stat_train, y_train = train_dataset
+        x_dyn_val, x_stat_val, y_val = val_dataset
+        x_dyn_test, x_stat_test, y_test = test_dataset
 
-        indices = np.random.RandomState(seed=0).permutation(x_train.shape[1])
-        if permut:
-            x_train = x_train[:,indices]
-            x_val = x_val[:, indices]
-            x_test = x_test[:, indices]
+        if model_kd is None:
+            y_preds = np.zeros((x_dyn_train.shape[0], 1))
+        elif model_kd.config.adaptative:
+            y_preds, h_latent = model_kd.predict(np.concatenate([x_dyn_train, x_stat_train], axis = 1))
+        else:
+            y_preds = model_kd.predict(np.concatenate([x_dyn_train, x_stat_train], axis = 1))
 
         train_loss = []
 
-        n_column = x_train.shape[-1]
+        n_column = x_dyn_train.shape[-1]
         n_column_subset = int(n_column / n_subsets)
         # Number of overlapping features between subsets
         n_overlap = int(overlap * n_column_subset)
-        stop_idx = n_column_subset + n_overlap
+        stop_idx = n_column_subset + n_overlap + x_stat_train.shape[-1]
 
-        self._init_ssl_models(input_shape=stop_idx, output_shape=x_train.shape[-1], add_layer = add_layer)
+        self._init_ssl_models(input_shape=stop_idx,
+                              output_shape=np.concatenate([x_dyn_train, x_stat_train], axis = 1).shape[-1],
+                              add_layer = add_layer)
+
         _ = self.encoder(tf.zeros([0, stop_idx]))
         _ = self.task(_)
-
         self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
+
         try:
             self.task.load_weights(os.path.join(model_directory, 'task_model'))
         except:
@@ -481,26 +518,36 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
             for i in range(len(self.encoder.layers)):
                 self.encoder.layers[i].trainable = False
 
-        val_ds = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(batch_size)
-        test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+        val_ds = tf.data.Dataset.from_tensor_slices((x_dyn_val, x_stat_val, y_val)).batch(batch_size)
+        test_ds = tf.data.Dataset.from_tensor_slices((x_dyn_test, x_stat_test, y_test)).batch(batch_size)
 
-        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience, factor=0.5)
         wait = 0
 
         for epoch in range(num_epochs):
-            if patience and epoch >= patience:
-                if self.config.finetuning:
-                    for i in range(len(self.encoder.layers)):
-                        self.encoder.layers[i].trainable = True
+            if (
+                patience
+                and epoch >= patience
+                and self.config.finetuning
+                and unfreeze
+            ):
+                for i in range(len(self.encoder.layers)):
+                    self.encoder.layers[i].trainable = True
 
-            x_train_, y_train_ = shuffle(x_train, y_train)
-            train_ds = tf.data.Dataset.from_tensor_slices((x_train_, y_train_)).batch(batch_size)
-            for x_batch_train, y_batch_train in train_ds:
-                x_tilde_train = self.subset_generator(x_batch_train.numpy(),
+            x_dyn_train_, x_stat_train_, y_train_, y_preds_ = shuffle(x_dyn_train, x_stat_train, y_train, y_preds)
+            train_ds = tf.data.Dataset.from_tensor_slices((x_dyn_train_, x_stat_train_, y_train_, y_preds_)).batch(batch_size)
+
+            for x_dyn_batch_train, x_stat_batch_train, y_batch_train, y_preds_batch in train_ds:
+                x_tilde_train = self.subset_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                      x_static=x_stat_batch_train.numpy(),
                                                       n_subsets=n_subsets, overlap=overlap,
                                                       p_m=p_m, noise_level=noise_level, mode="test")
+
                 #kd = model_kd(x_batch_train) if model_kd else None
-                self.subtab_train_step(x_tilde=x_tilde_train, y_batch_train=y_batch_train)
+                self.subtab_train_step(x_tilde=x_tilde_train,
+                                       y_batch_train=y_batch_train,
+                                       kd = y_preds_batch.numpy(),
+                                       lambda_=lambda_)
 
             loss_epoch = self.loss_metric.result().numpy()
             train_acc_result = self.metric.result().numpy()
@@ -511,9 +558,10 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
             if epoch%save_steps ==0:
                 wait +=1
-                w_h = self._get_weights(x_train_, y_train_, n_subsets, overlap)
-                for x_batch_train, y_batch_train in val_ds:
-                    x_tilde_val = self.subset_generator(x_batch_train.numpy(),
+                w_h = self._get_weights(x_dyn_train_, x_stat_train_, y_train_, n_subsets, overlap)
+                for x_dyn_batch_train, x_stat_batch_train, y_batch_train in val_ds:
+                    x_tilde_val = self.subset_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                        x_static=x_stat_batch_train.numpy(),
                                                         n_subsets=n_subsets, overlap=overlap,
                                                         mode="test")
                     self.subtab_val_step(x_tilde_val, y_batch_train, w_loss=w_h)
@@ -525,8 +573,9 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
-                for x_batch_train, y_batch_train in test_ds:
-                    x_tilde_test = self.subset_generator(x_batch_train.numpy(),
+                for x_dyn_batch_train, x_stat_batch_train, y_batch_train in test_ds:
+                    x_tilde_test = self.subset_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                         x_static=x_stat_batch_train.numpy(),
                                                          n_subsets=n_subsets, overlap=overlap,
                                                          mode="test")
                     self.subtab_val_step(x_tilde_test, y_batch_train, w_loss=w_h)
@@ -551,31 +600,3 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
 
         self.encoder.save_weights(os.path.join(model_directory, 'encoder_last_model'))
         self.task.save_weights(os.path.join(model_directory, 'task_last_model'))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

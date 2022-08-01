@@ -6,10 +6,9 @@ from eoflow.base.base_custom_training import BaseModelCustomTraining
 from eoflow.base.base_cotraining import BaseModelCoTraining
 from eoflow.base.base_dann import BaseModelAdapt
 from eoflow.base.base_dann_v2 import BaseModelAdaptV2
-from eoflow.base.base_dann_v3 import BaseModelAdaptV3
-from eoflow.base.base_coral import BaseModelAdaptCoral
-from eoflow.base.base_multiview import BaseModelMultiview
-from eoflow.base.base_fusion import BaseModelfusion
 from eoflow.base.base_ssl import BaseModelSLLTraining
 from eoflow.base.base_multibranch import BaseModelMultibranch
 from eoflow.base.base_self_supervised import BaseModelSelfTraining
+from eoflow.base.base_self_supervised_v2 import BaseModelSelfTrainingV2
+from eoflow.base.base_forecast import BaseModelForecast
+from eoflow.base.base_kd import BaseModelKD

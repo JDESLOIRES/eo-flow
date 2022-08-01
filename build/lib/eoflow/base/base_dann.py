@@ -44,24 +44,15 @@ class BaseModelAdapt(BaseModelCustomTraining):
 
     def _get_encoder(self, x):
         inputs, encode, _, _, _ = self._init_models(x)
-        encoder = tf.keras.Model(inputs=inputs, outputs=encode)
-        encoder.summary()
-        self.encoder = self._assign_properties(encoder)
+        self.encoder = tf.keras.Model(inputs=inputs, outputs=encode)
 
     def _get_discriminator(self, x):
         _, encode, _, output_discriminator, _ = self._init_models(x)
-
-        discriminator = tf.keras.Model(inputs=encode, outputs=output_discriminator)
-        discriminator.summary()
-        self.discriminator = self._assign_properties(discriminator)
-        self.discriminator.loss = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+        self.discriminator = tf.keras.Model(inputs=encode, outputs=output_discriminator)
 
     def _get_task(self, x):
         _, encode, _, _, output_task = self._init_models(x)
-
-        task = tf.keras.Model(inputs=encode, outputs=output_task)
-        task.summary()
-        self.task = self._assign_properties(task)
+        self.task = tf.keras.Model(inputs=encode, outputs=output_task)
 
     @staticmethod
     def _init_dataset_training(x_s, y_s, x_t, y_t, batch_size):
@@ -187,11 +178,8 @@ class BaseModelAdapt(BaseModelCustomTraining):
                  model_directory,
                  save_steps=10,
                  patience=30,
-                 shift_step=0,
-                 feat_noise=0,
-                 sdev_label=0,
-                 fillgaps = 0,
                  reduce_lr=False,
+                 init_models = True,
                  function=np.min):
 
         train_loss, val_loss, val_acc, test_loss, test_acc, \
@@ -201,9 +189,16 @@ class BaseModelAdapt(BaseModelCustomTraining):
         x_t, y_t = trgt_dataset
         x_t_, y_t_ = self._assign_missing_obs(x_s, x_t, y_t)
 
-        self._get_encoder(x_s)
-        self._get_task(x_s)
-        self._get_discriminator(x_s)
+        if init_models:
+            self._get_encoder(x_s)
+            self._get_task(x_s)
+            self._get_discriminator(x_s)
+
+        _ = self(tf.zeros([k for k in x_s.shape]))
+        self.discriminator = self._assign_properties(self.discriminator)
+        self.discriminator.loss = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+        self.encoder = self._assign_properties(self.encoder)
+        self.task = self._assign_properties(self.task)
 
         x_v, y_v = val_dataset
         val_ds = tf.data.Dataset.from_tensor_slices((x_v.astype('float32'), y_v.astype('float32'))).batch(batch_size)
@@ -212,16 +207,9 @@ class BaseModelAdapt(BaseModelCustomTraining):
         reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
         wait = 0
 
-        _ = self(tf.zeros([k for k in x_s.shape]))
-
         for epoch in range(num_epochs + 1):
 
             x_s, y_s, x_t_, y_t_ = shuffle(x_s, y_s, x_t_, y_t_)
-            '''
-            if patience and epoch >= patience:
-                x_s, y_s = data_augmentation(x_s, y_s, shift_step, feat_noise, sdev_label, fillgaps)
-                x_t_, _ = data_augmentation(x_t_, y_t_, shift_step, feat_noise, sdev_label, fillgaps)
-            '''
 
             train_ds = self._init_dataset_training(x_s, y_s, x_t_, y_t_, batch_size)
 

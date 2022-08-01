@@ -7,12 +7,9 @@ from keras.layers import TimeDistributed
 from tensorflow.keras.layers import SimpleRNN, LSTM, GRU, Dense
 from tensorflow.python.keras.utils.layer_utils import print_summary
 
-from eoflow.models.layers import ResidualBlock
-from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel
 
-from eoflow.models import transformer_encoder_layers
-from eoflow.models import pse_tae_layers
 from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCustomTempnetsModel
+from eoflow.models.layers import Sampling
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -34,7 +31,7 @@ class BiRNN(BaseCustomTempnetsModel):
 
         rnn_units = fields.Int(missing=64, description='Size of the convolution kernels.')
         rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
-        bidirectional = fields.Bool(missing=True, description='Whether to use a bidirectional layer')
+
 
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
@@ -42,7 +39,6 @@ class BiRNN(BaseCustomTempnetsModel):
         nb_fc_neurons = fields.Int(missing=0, description='Number of fully connected neurons.')
         fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
 
-        layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
         batch_norm = fields.Bool(missing=False, description='Whether to use batch normalisation.')
         multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
 
@@ -110,96 +106,77 @@ class BiRNN(BaseCustomTempnetsModel):
 
 
 
-#https://www.sciencedirect.com/science/article/pii/S0034425721003205
-
-
-class ConvLSTM(BaseCustomTempnetsModel):
-    """ Implementation of a Bidirectional Recurrent Neural Network
-
-    This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
+class MultiBranchRNN(BaseCustomTempnetsModel):
+    """
+    Implementation of the TempCNN network taken from the temporalCNN implementation
+    https://github.com/charlotte-pel/temporalCNN
     """
 
-
-    class ConvLSTMShema(BaseCustomTempnetsModel._Schema):
+    class MultiBranchRNN(BaseCustomTempnetsModel._Schema):
         keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
-        kernel_size = fields.Int(missing=5, description='Size of the convolution kernels.')
-        nb_conv_filters = fields.Int(missing=16, description='Number of convolutional filters.')
-        nb_conv_stacks = fields.Int(missing=3, description='Number of convolutional blocks.')
-        nb_conv_strides = fields.Int(missing=1, description='Value of convolutional strides.')
-        nb_fc_neurons = fields.Int(missing=256, description='Number of Fully Connect neurons.')
-        nb_fc_stacks = fields.Int(missing=1, description='Number of fully connected layers.')
 
-        padding = fields.String(missing='SAME', validate=OneOf(['SAME','VALID', 'CAUSAL']),
-                                description='Padding type used in convolutions.')
-        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
-        fc_activation = fields.Str(missing=None, description='Activation function used in final FC layers.')
+        rnn_units = fields.Int(missing=16, description='Number of convolutional filters.')
+        rnn_blocks = fields.Int(missing=3, description='Number of convolutional blocks.')
+
         kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
         kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
-        enumerate = fields.Bool(missing=False, description='Increase number of filters across convolution')
+
+        bidirectional = fields.Bool(missing=False, description='Whether to use a bidirectional layer')
+        layer_norm = fields.Bool(missing=False, description='Whether to apply layer normalization in the encoder.')
+
+        rnn_layer = fields.String(required=True, validate=OneOf(['lstm', 'gru']),
+                                  description='Type of RNN layer to use')
+        multibranch = fields.Bool(missing=False, description='Multibranch model')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
+
+        nb_fc_neurons = fields.Int(missing=128, description='Number of Fully Connect neurons.')
+        static_fc_neurons = fields.Int(missing=10, description='Number of Fully Connect neurons.')
+        nb_fc_stacks = fields.Int(missing=2, description='Number of fully connected tf.keras.layers.')
+        fc_activation = fields.Str(missing='relu', description='Activation function used in final FC tf.keras.layers.')
+        dims = fields.Int(missing=6, description='Number of  dimensions.')
         batch_norm = fields.Bool(missing=True, description='Whether to use batch normalisation.')
 
-        rnn_layer = fields.String(required=True, validate=OneOf(['rnn', 'lstm', 'gru']),
-                                  description='Type of RNN layer to use')
-        rnn_units = fields.Int(missing=64, description='Size of the convolution kernels.')
-        rnn_blocks = fields.Int(missing=1, description='Number of LSTM blocks')
-        bidirectional = fields.Bool(missing=False, description='Whether to use a bidirectional layer')
-        layer_norm = fields.Bool(missing=True, description='Whether to apply layer normalization in the encoder.')
-        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        activation = fields.Str(missing='relu', description='Activation function used in final filters.')
+        n_classes = fields.Int(missing=1, description='Number of classes')
+        output_activation = fields.String(missing='linear', description='Output activation')
 
-    def _cnn_layer(self, net, i = 0):
+        ema = fields.Bool(missing=True, description='Apply EMA')
 
-        dropout_rate = 1 - self.config.keep_prob_conv
-        filters = self.config.nb_conv_filters
-        kernel_size = self.config.kernel_size
-
-        if self.config.enumerate:
-            filters = filters * (2**i)
-            kernel_size = kernel_size * (i+1)
-
-        layer = tf.keras.layers.Conv1D(filters=filters,
-                                       kernel_size=kernel_size,
-                                       strides=self.config.n_strides,
-                                       padding=self.config.padding,
-                                       kernel_initializer=self.config.kernel_initializer,
-                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
-        if self.config.batch_norm:
-            layer = tf.keras.layers.BatchNormalization(axis=-1)(layer)
-
-        layer = tf.keras.layers.Dropout(dropout_rate)(layer)
-        layer = tf.keras.layers.Activation(self.config.activation)(layer)
-
-        return layer
-
-    def _rnn_layer(self, net, last=False):
+    def _rnn_layer(self, net, i, last=False):
         """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
         RNNLayer = rnn_layers[self.config.rnn_layer]
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob
+
+        denom = self.config.factor * (i-1)
+        if denom==0: denom += 1
 
         layer = RNNLayer(
-            units=self.config.rnn_units,
+            units=self.config.rnn_units//denom,
             dropout=dropout_rate,
             return_sequences=not last,
         )
-
         # Use bidirectional if specified
         if self.config.bidirectional:
             layer = tf.keras.layers.Bidirectional(layer)
 
         return layer(net)
 
-    def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob_conv
-        layer_fcn = Dense(units=self.config.nb_fc_neurons,
+
+    def _fcn_layer(self, net, nb_neurons):
+        dropout_rate = 1 - self.config.keep_prob
+
+        layer_fcn = Dense(units=nb_neurons,
                           kernel_initializer=self.config.kernel_initializer,
                           kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
         if self.config.batch_norm:
             layer_fcn = tf.keras.layers.BatchNormalization(axis=-1)(layer_fcn)
 
         layer_fcn = tf.keras.layers.Dropout(dropout_rate)(layer_fcn)
-        if self.config.fc_activation:
-            layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
+        layer_fcn = tf.keras.layers.Activation(self.config.fc_activation)(layer_fcn)
 
         return layer_fcn
+
 
     def build(self, inputs_shape):
         """ Build TCN architecture
@@ -207,31 +184,144 @@ class ConvLSTM(BaseCustomTempnetsModel):
         The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
         time-frames, and `D` the number of channels
         """
+
+        list_inputs = []
+        list_submodels = []
+
+        for input in inputs_shape[0]:
+            x = tf.keras.layers.Input(input[1:])
+            net = x
+            if self.config.layer_norm:
+                net = tf.keras.layers.LayerNormalization(axis=-1)(net)
+
+            for i in range(1, self.config.rnn_blocks):
+                net = self._rnn_layer(net, i)
+
+            list_submodels.append(self._rnn_layer(net, self.config.rnn_blocks, last=True))
+            list_inputs.append(x)
+
+        if len(inputs_shape)>1:
+            x = tf.keras.layers.Input(inputs_shape[1][1:])
+            net = x
+            fc_net = self._fcn_layer(net, self.config.static_fc_neurons)
+            fc_net = self._fcn_layer(fc_net,  self.config.static_fc_neurons//2)
+            list_submodels.append(fc_net)
+            list_inputs.append(x)
+
+        data_fusion = tf.keras.layers.Concatenate(axis=1)(list_submodels)
+
+        fc = self._fcn_layer(data_fusion, nb_neurons=self.config.nb_fc_neurons)
+        if self.config.reduce:
+            fc = self._fcn_layer(fc, nb_neurons=self.config.nb_fc_neurons//4)
+        else:
+            fc = self._fcn_layer(fc, nb_neurons=self.config.nb_fc_neurons // 2)
+
+        output = tf.keras.layers.Dense(units = self.config.n_classes,
+                                       activation = self.config.output_activation,
+                                       kernel_initializer=self.config.kernel_initializer,
+                                       kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(fc)
+
+        self.net = tf.keras.Model(inputs=[list_inputs], outputs=[output, data_fusion])
+        print(self.net.summary())
+
+    def call(self, inputs, training=None):
+        return self.net(inputs, training)
+
+
+#https://www.sciencedirect.com/science/article/pii/S0034425721003205
+
+
+class VAERNN(BaseCustomTempnetsModel):
+    """ Implementation of a Bidirectional Recurrent Neural Network
+
+    This implementation allows users to define which RNN layer to use, e.g. SimpleRNN, GRU or LSTM
+    """
+
+    class VAERNN(BaseCustomTempnetsModel._Schema):
+        keep_prob = fields.Float(required=True, description='Keep probability used in dropout layers.', example=0.5)
+
+        rnn_units = fields.Int(missing=16, description='Number of convolutional filters.')
+        rnn_blocks = fields.Int(missing=3, description='Number of convolutional blocks.')
+        factor = fields.Int(missing=2, description='Number of convolutional blocks.')
+
+        kernel_initializer = fields.Str(missing='he_normal', description='Method to initialise kernel parameters.')
+        kernel_regularizer = fields.Float(missing=1e-6, description='L2 regularization parameter.')
+
+        bidirectional = fields.Bool(missing=False, description='Whether to use a bidirectional layer')
+        layer_norm = fields.Bool(missing=False, description='Whether to apply layer normalization in the encoder.')
+
+        rnn_layer = fields.String(required=True, validate=OneOf(['lstm', 'gru']), description='Type of RNN layer to use')
+        multibranch = fields.Bool(missing=False, description='Multibranch model')
+        multioutput = fields.Bool(missing=False, description='Decrease dense neurons')
+        finetuning = fields.Bool(missing=False, description='Unfreeze layers after patience')
+
+        variational = fields.Bool(missing=True, description='Unfreeze layers after patience')
+        output_shape = fields.List(fields.Int, description='Unfreeze layers after patience')
+
+    def _rnn_layer(self, net, i, last=False):
+        """ Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer. """
+        RNNLayer = rnn_layers[self.config.rnn_layer]
+        dropout_rate = 1 - self.config.keep_prob
+
+        denom = self.config.factor * (i-1)
+        if denom==0: denom += 1
+
+        layer = RNNLayer(
+            units=self.config.rnn_units//denom,
+            dropout=dropout_rate,
+            return_sequences=not last,
+        )
+        # Use bidirectional if specified
+        if self.config.bidirectional:
+            layer = tf.keras.layers.Bidirectional(layer)
+
+        return layer(net)
+
+
+    def build(self, inputs_shape):
+        """ Build TCN architecture
+
+        The `inputs_shape` argument is a `(N, T, D)` tuple where `N` denotes the number of samples, `T` the number of
+        time-frames, and `D` the number of channels
+        """
+
         x = tf.keras.layers.Input(shape = inputs_shape[1:])
         print(x.shape)
         net = x
-        for i, _ in enumerate(range(self.config.nb_conv_stacks)):
-            net = self._cnn_layer(net, i)
 
-        for i, _ in range(self.config.rnn_blocks-1):
-            net = self._rnn_layer(net)
-        net = self._rnn_layer(net, last=True)
+        if self.config.layer_norm:
+            net = tf.keras.layers.LayerNormalization(axis=-1)(net)
 
-        for _ in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net)
+        for i in range(1, self.config.rnn_blocks):
+            net = self._rnn_layer(net, i)
 
-        net = Dense(units = 1,
-                    activation = 'linear',
-                    kernel_initializer=self.config.kernel_initializer,
-                    kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(net)
+        enc = self._rnn_layer(net, self.config.rnn_blocks, last=True)
 
-        self.net = tf.keras.Model(inputs=x, outputs=net)
+        if self.config.variational:
+            dense_mean = tf.keras.layers.Dense(units=self.config.rnn_units // (self.config.factor * (self.config.rnn_blocks-1)))(enc)  # ,activation=embedding_activation
+            dense_log_var = tf.keras.layers.Dense(units=self.config.rnn_units // (self.config.factor * (self.config.rnn_blocks-1)))(enc)  # ,activation=embedding_activation
+            sampling = Sampling()((dense_mean, dense_log_var))
+            net = tf.keras.layers.RepeatVector(self.config.output_shape[0])(sampling)
+        else:
+            net = tf.keras.layers.RepeatVector(self.config.output_shape[0])(enc)
+
+        for i in range(self.config.rnn_blocks, 0, -1):
+            net = self._rnn_layer(net, i)
+        output_layer = tf.keras.layers.TimeDistributed(Dense(self.config.output_shape[1]))(net)
+
+        if self.config.multioutput:
+            labels = tf.keras.layers.Dense(units=1,
+                                        activation='linear',
+                                        kernel_initializer=self.config.kernel_initializer,
+                                        kernel_regularizer=tf.keras.regularizers.l2(self.config.kernel_regularizer))(enc)
+
+            self.net = tf.keras.Model(inputs=x, outputs=[output_layer, labels])
+
+        else:
+            self.net = tf.keras.Model(inputs=x, outputs=output_layer)
 
         print_summary(self.net)
 
     def call(self, inputs, training=None):
         return self.net(inputs, training)
-
-    def get_feature_map(self, inputs, training=None):
-        return self.backbone(inputs, training)
 

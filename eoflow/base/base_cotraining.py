@@ -311,6 +311,7 @@ class BaseModelCoTraining(BaseModelCustomTraining):
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
+
                 print(
                     "Epoch {0}: Train loss {1}, Val loss {2}, Val acc {3}".format(
                         str(epoch), str(loss_epoch),  str(test_loss_epoch),  str(round(val_acc_result, 4)),

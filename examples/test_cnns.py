@@ -77,23 +77,24 @@ preds = model.predict(x_test)
 r2_score(y_test, preds)
 '''
 
-
 model_cfg_cnn_stride = {
-    "learning_rate": 10e-3,
-    'keep_prob_conv' : 0.8,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 6, #wiorks great with 32
-    "nb_conv_stacks" : 3,
-    'nb_fc_neurons' : 72,
-    'kernel_size' : 7,
-    "nb_fc_stacks": 2, #Nb FCN layers
-    "fc_activation" : 'relu',
-    "n_strides" : 1,
-    "padding": "VALID",
-    'batch_norm' : True,
+    "learning_rate": 10e-4,
+    'keep_prob_conv': 0.8,
+    "keep_prob": 0.5,  # should keep 0.8
+    "nb_conv_filters": 10,  # wiorks great with 32
+    "nb_conv_stacks": 2,
+    'nb_fc_neurons': 64,
+    'kernel_size': 3,
+    "nb_fc_stacks": 2,  # Nb FCN layers
+    "fc_activation": 'relu',
+    'static_fc_neurons': 64,
+    "padding": 'SAME',
     "metrics": "r_square",
-    #"kernel_regularizer" : 1e-6,
+    "kernel_regularizer": 1e-7,
     "loss": "mse",
+    "reduce": False,
+    'str_inc': True,
+    "ema": False
 }
 
 #console 1 et 3 : activation in the layer + flipout
@@ -103,40 +104,6 @@ model_cnn = cnn_tempnets.MultiBranchCNN(model_cfg_cnn_stride)
 # Prepare the model (must be run before training)
 model_cnn.prepare()
 
-
-model_cnn.summary
-self = model_cnn
-x = x_train
-y = y_train
-
-pretraining = False
-cotraining = False
-
-
-if pretraining:
-    x_pretrain = np.concatenate([x_train, x_test], axis = 0)
-    model_cnn.pretraining(x_pretrain,
-                          pretraining_path='/home/johann/Documents/model_64_Causal_Stride_shift_4',
-                          num_epochs=10, shift=0, proba=0.5, noise = 0.5)
-    model_directory = '/home/johann/Documents/model_64_Causal_Stride_shift_4'
-
-
-
-if cotraining:
-    model_cnn.cotraining(train_dataset=(x_train, y_train),
-                         val_dataset=(x_test, y_test),
-                         num_epochs=500,
-                         batch_size = 8,
-                         lambda_=0.8,
-                         patience = 50,
-                         pretraining_path ='/home/johann/Documents/model_64_Causal_Stride_shift_4')
-
-
-ts=3
-self = model_cnn
-x = x_train
-batch_size = 8
-print('clip to 0.5')
 
 
 y_train_ = np.concatenate([y_train, y_train] , axis = 1)
@@ -152,10 +119,6 @@ model_cnn.fit(
     save_steps=5,
     batch_size = 32,
     function = np.min,
-    shift_step = 1, #3
-    sdev_label =0.05, #0.11
-    fillgaps=1,
-    feat_noise = 0.5, #0.2
     patience = 50,
     forget = 0,
     reduce_lr = True,
@@ -164,169 +127,7 @@ model_cnn.fit(
 
 
 
-#CONSOLE 15 : clip 0.15 ; console 16 : clip to 0.001-1.0
-model_cnn.load_weights('/home/johann/Documents/model_v5_' + str(ts) + '/best_model')
-t, _ = model_cnn.predict(x_test)
-plt.scatter(y_test, t)
-plt.show()
-mean_absolute_error(y_test, t)
-plt.show()
-
-import pandas as pd
-df = pd.DataFrame([t.flatten(), y_test.flatten(),np.sqrt(np.exp(_sig.flatten()))]).T
-df.columns = ['preds', 'true', 'uncertainty']
-df['scaled'] = (df['uncertainty']/(df['preds']+1e-2))
-
-plt.hist(df['uncertainty'], bins=16)
-plt.show()
-threshold = np.quantile(df['uncertainty'],0.95)
-df = df[df.uncertainty < threshold]
-plt.scatter(df['true'], df['preds'])
-plt.show()
-r2_score(df['true'], df['preds'])
-mean_absolute_error(df['true'], df['preds'])
-
-
-plt.scatter(y_test,np.sqrt(np.exp(_sig)))
-plt.show()
-plt.scatter(y_test,t)
-plt.show()
-mean_squared_error(y_test,t)
-r2_score(y_test,t)
-
-fig = plt.figure(figsize=(15,10))
-ax = fig.add_subplot(1,1,1)
-plt.scatter(y_test.flatten(),t.flatten(), color = 'red')
-plt.errorbar(y_test.flatten(),t.flatten(), yerr=1.5*np.sqrt(np.exp(_sig).flatten()), fmt="o")
-plt.show()
-
-np.corrcoef(y_test.flatten(),t.flatten())
-
-
-
-'''
-model_cfg_cnn_stride = { #was working great with timeshift = p :.5, t=2, noise 0.1 feat_noise 0.3
-    "learning_rate": 5e-4,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 64, #wiorks great with 32
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 64,
-    "nb_fc_stacks": 2, #Nb FCN layers
-    "fc_activation" : 'relu',
-    "kernel_size" : 1,
-    "n_strides" :1,
-    "kernel_initializer" : 'he_normal',
-    "batch_norm": True,
-    "padding": "SAME",
-    "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "mse", #huber was working great for 2020 and 2021
-    "enumerate" : True,
-    "metrics": "r_square"
-}
-############################################
-# Model configuration CNN 2019
-model_cfg_cnn_2019 = {
-    "learning_rate": 10e-5,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 64, #wiorks great with 32
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 128,
-    "nb_fc_stacks": 1, #Nb FCN layers
-    "fc_activation" : 'relu',
-    "kernel_size" : 1,
-    "n_strides" :1,
-    "kernel_initializer" : 'he_normal',
-    "batch_norm": True,
-    "padding": "CAUSAL",
-    "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "mse", #huber was working great for 2020 and 2021
-    "enumerate" : True,
-    "metrics": "r_square"
-}
-#MODEL 64 128 with drop out 0.5 works great on 2019
-model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn_2019)
-# Prepare the model (must be run before training)
-model_cnn.prepare()
-
-model_cnn.train_and_evaluate(
-    train_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
-    num_epochs=500,
-    save_steps=5,
-    batch_size = 8,
-    function = np.min,
-    shift_step = 0, #3
-    sdev_label =0.1, #0.1
-    feat_noise = 0.2, #0.2
-    patience = 50,
-    forget = True,
-    #pretraining_path ='/home/johann/Documents/model_64_Stride_SAME',
-    model_directory='/home/johann/Documents/model_512',
-)
-'''
-'''
-# Model configuration CNN other years
-model_cfg_cnn = {
-    "learning_rate": 10e-4,
-    "keep_prob" : 0.5, #should keep 0.8
-    "nb_conv_filters": 64, #wiorks great with 32
-    "nb_conv_stacks": 3,  # Nb Conv layers
-    "nb_fc_neurons" : 64,
-    "nb_fc_stacks": 2, #Nb FCN layers
-    "fc_activation" : 'relu',
-    "kernel_size" : 1,
-    "n_strides" :2,
-    "kernel_initializer" : 'he_normal',
-    "batch_norm": True,
-    "padding": "SAME",
-    "kernel_regularizer" : 1e-6,
-    "emb_layer" : 'GlobalAveragePooling1D',
-    "loss": "mse", #huber was working great for 2020 and 2021
-    "enumerate" : True,
-    "metrics": "r_square"
-}
-#MODEL 64 128 with drop out 0.5 works great on 2019
-model_cnn = cnn_tempnets.TempCNNModel(model_cfg_cnn)
-# Prepare the model (must be run before training)
-model_cnn.prepare()
-pretraining = False
-cotraining = False
-if pretraining:
-    x_pretrain = np.concatenate([x_train, x_test], axis = 0)
-    model_cnn.pretraining(x_pretrain,
-                          pretraining_path='/home/johann/Documents/model_16_Flatten_SAME',
-                          num_epochs=100, shift=0, lambda_ = 0.1)
-if cotraining:
-    model_cnn.cotraining(train_dataset=(x_train, y_train),
-                         val_dataset=(x_test, y_test),
-                         num_epochs=500,
-                         batch_size = 16,
-                         lambda_=0.8,
-                         patience = 100,
-                         pretraining_path ='/home/johann/Documents/model_16_Flatten_SAME')
-ts=3
-self = model_cnn
-x = x_train
-batch_size = 8
-model_cnn.train_and_evaluate(
-    train_dataset=(x_train, y_train),
-    val_dataset=(x_test, y_test),
-    num_epochs=500,
-    save_steps=5,
-    batch_size = 8,
-    function = np.min,
-    shift_step = 2, #3
-    sdev_label =0.1, #0.1
-    feat_noise = 0.2, #0.2
-    patience = 50,
-    forget = True,
-    #pretraining_path ='/home/johann/Documents/model_16_Flatten_SAME',
-    model_directory='/home/johann/Documents/model_512',
-)
-
-'''
+#############
 ########################################################################################################################
 ########################################################################################################################
 

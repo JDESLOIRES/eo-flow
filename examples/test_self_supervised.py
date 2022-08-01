@@ -15,7 +15,6 @@ def npy_concatenate(path, prefix='training_x', T=30):
 
 
 
-
 def load_gdd_data(path_training =  '/media/DATA/johann/in_season_yield/data/Sentinel2/EOPatch_V4/training_final',
                   group = '2021/fold_1'):
 
@@ -77,6 +76,10 @@ test_y_[test_y_<0] = 0
 test_y_[test_y_>1] = 1
 
 
+x_dyn = np.concatenate([training_dyn, val_x_dyn, test_x_dyn], axis = 0)
+x_st = np.concatenate([training_x_static, val_x_static, test_x_static], axis = 0)
+
+
 model_cfg_mlp = {
     "learning_rate": 10e-4,
     "keep_prob": 1.0,  # should keep 0.8
@@ -91,7 +94,7 @@ model_cfg_mlp = {
     "loss": "mse",
     "multibranch": False,
     "multioutput": False,
-    "adaptative" : True,
+    "adaptative" : False,
     "layer_before" : 1,
     "ema": False
 }
@@ -101,31 +104,20 @@ model_compiled = mlp_tempnets.MLP(model_cfg_mlp)
 model_compiled.prepare()
 self = model_compiled
 
-'''
-model_kd = mlp_tempnets.MLP(model_cfg_mlp_pre)
-model_kd.prepare()
-model_kd.load_weights(os.path.join('/home/johann/Documents/SSL/' + str(year),'model/last_model'))
-'''
-x_dyn = np.concatenate([training_dyn, val_x_dyn, test_x_dyn], axis = 0)
-x_st = np.concatenate([training_x_static, val_x_static, test_x_static], axis = 0)
-from sklearn.preprocessing import StandardScaler
-st_std_sc = StandardScaler()
 
-#x_dyn = st_std_sc.fit_transform(x_dyn)
-#x_st = st_std_sc.fit_transform(x_st)
+self = model_compiled
 
-
-model_compiled.fit_pretrain(
+model_compiled.fit_unsupervised(
     x_dynamic=x_dyn,
     x_static=x_st,
+    x_orig=np.concatenate([x_dyn, x_st], axis = 1),
     num_epochs=50,
-    batch_size=32,
-    n_subsets=3, overlap=1.0,
-    p_m=0.1, noise_level=0.1,
-    temperature=0.05,
-    swap=True,
-    rho = 0.05,
-    model_directory='/home/johann/Documents/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year)
+    batch_size=8,
+    p_m=0.075, noise_level=0.15,
+    temperature= 0.05, #0.1,
+    permut=True,
+    rho= 0.05,
+    model_directory='/home/johann/Documents/SSL_ENC_128_SPARSE_NODP_2L/' + str(year)
 )
 
 
@@ -133,40 +125,29 @@ model_cfg_mlp['keep_prob'] = 0.5
 model_compiled = mlp_tempnets.MLP(model_cfg_mlp)
 model_compiled.prepare()
 
-model_compiled.fit_supervised(
+model_compiled.fit_task(
     train_dataset=(training_dyn, training_x_static, training_y),
     val_dataset=(val_x_dyn, val_x_static,val_y),
     test_dataset=(test_x_dyn, test_x_static, test_y),
     batch_size=12,
-    num_epochs=200,
-    add_layer=False,
-    #model_directory='/home/johann/Documents/SSL_64_3_0.75_RELU_KD/' + str(2021),
-    model_directory='/home/johann/Documents/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year),
+    num_epochs=500,
+    model_directory='/home/johann/Documents/SSL_ENC_128_SPARSE_NODP_2L/' + str(year),
     save_steps = 5,
     finetuning = True,
     unfreeze=False,
-    patience = 0,
-    n_subsets=3, overlap=1.0,
+    patience = 50,
     p_m =0, noise_level=0,
-    #model_kd=model_kd
 )
 
 
-# indices = np.random.RandomState(seed=0).permutation(test_x.shape[1])
-# if permut: test_x = test_x[:,indices]
+model_compiled.fit(
+    train_dataset=(np.concatenate([training_dyn, training_x_static], axis = 1), training_y),
+    val_dataset=(np.concatenate([val_x_dyn, val_x_static], axis = 1), val_y),
+    test_dataset=(np.concatenate([test_x_dyn, test_x_static], axis = 1), test_y),
+    batch_size=12,
+    num_epochs=200,
+    model_directory='/home/johann/Documents/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year),
+    save_steps = 5,
+    patience = 0,
+)
 
-preds = model_compiled.subtab_pred_step(x_test_=test_x,
-                                        model_directory='/home/johann/Documents/SSL_64-128-64_2L_1_0.8_RELU/' + str(2021),
-                                        #model_directory='/home/johann/Documents/SSL_3_V2_RELU/' + str(2017),
-                                        permut = True,
-                                        n_subsets=2, overlap=0.75)
-
-import matplotlib.pyplot as plt
-plt.scatter( test_y, preds)
-plt.show()
-
-
-from sklearn.metrics import r2_score, mean_absolute_error
-r2_score(test_y, preds)
-mean_absolute_error(test_y, preds)
-year

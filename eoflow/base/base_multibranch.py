@@ -10,6 +10,7 @@ from eoflow.models.data_augmentation import data_augmentation
 from tsaug import TimeWarp, AddNoise, Pool, Convolve, Drift
 from eoflow.models import data_augmentation as dat_aug
 
+
 class BaseModelMultibranch(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
@@ -51,7 +52,7 @@ class BaseModelMultibranch(BaseModelCustomTraining):
             cost = self.loss(y_batch_train, y_preds)
 
             self.loss_metric.update_state(tf.reduce_mean(cost))
-            self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_preds)), y_preds)
+            self.metric.update_state(y_batch_train.numpy().flatten(), y_preds.numpy().flatten())
 
     @staticmethod
     def _reshape_array(x_dyn, x_static):

@@ -52,17 +52,14 @@ class BaseModelSLLTraining(BaseModelCustomTraining):
                     train_ds):
 
         for x_batch_train, y_batch_train in train_ds:  # tqdm
-            with tf.GradientTape() as tape:
 
-                y_preds, _ = self.call(x_batch_train, training=False)
+            y_preds, _ = self.call(x_batch_train, training=False)
+            cost = self.loss(y_batch_train, y_preds)
+            cost += sum(self.losses)
 
-
-                cost = self.loss(y_batch_train, y_preds)
-                cost += sum(self.losses)
-
-                cost = tf.reduce_mean(cost)
-            self.loss_metric.update_state(cost)
-            self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_preds)), y_preds)
+            cost = tf.reduce_mean(cost)
+        self.loss_metric.update_state(cost)
+        self.metric.update_state(tf.reshape(y_batch_train[:, 0], tf.shape(y_preds)), y_preds)
 
 
     def fit_ssl(self,
