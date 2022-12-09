@@ -5,7 +5,7 @@ import os
 
 from tensorflow.keras.layers import Dense
 
-from .base_self_supervised import BaseModelCustomTraining
+from .base_ssl_contrastive import BaseModelCustomTraining
 
 import pickle
 
