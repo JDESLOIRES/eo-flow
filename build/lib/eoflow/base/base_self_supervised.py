@@ -436,8 +436,7 @@ class BaseModelSelfTraining(BaseModelCustomTraining):
                 self.pretrain_step(concatenated_subsets_list,
                                    x_orig = np.concatenate([x_dyn_batch_train.numpy(), x_stat_batch_train.numpy()], axis = 1),
                                    temperature=temperature,
-                                   rho = rho
-                                 )
+                                   rho = rho)
 
             loss_epoch = self.loss_metric.result().numpy()
             loss_reco = self.encoder.loss_metric.result().numpy()

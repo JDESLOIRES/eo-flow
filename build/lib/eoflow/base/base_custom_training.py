@@ -20,6 +20,12 @@ class BaseModelCustomTraining(tf.keras.Model, Configurable):
         self.ema = tf.train.ExponentialMovingAverage(decay=0.99)
         self.init_model()
 
+    def custom_l2_regularizer(self, weights):
+        reg = 0
+        for w in weights:
+            reg += tf.reduce_sum(tf.square(w))
+        return reg
+
     def init_model(self):
         """ Called on __init__. Keras self initialization. Create self here if does not require the inputs shape """
         pass

@@ -97,6 +97,7 @@ model_cfg_mlp = {
 }
 
 
+
 model_compiled = mlp_tempnets.MLP(model_cfg_mlp)
 model_compiled.prepare()
 self = model_compiled
@@ -118,18 +119,22 @@ st_std_sc = StandardScaler()
 model_compiled.fit_pretrain(
     x_dynamic=x_dyn,
     x_static=x_st,
-    num_epochs=50,
+    num_epochs=10,
     batch_size=32,
     n_subsets=3, overlap=1.0,
     p_m=0.1, noise_level=0.1,
     temperature=0.05,
     swap=True,
     rho = 0.05,
-    model_directory='/home/johann/Documents/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year)
+    model_directory='/home/johann/Documents/Experiments SUBTAB/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year)
 )
 
 
+
+
 model_cfg_mlp['keep_prob'] = 0.5
+model_cfg_mlp['loss'] = 'rmse'
+
 model_compiled = mlp_tempnets.MLP(model_cfg_mlp)
 model_compiled.prepare()
 
@@ -141,7 +146,7 @@ model_compiled.fit_supervised(
     num_epochs=200,
     add_layer=False,
     #model_directory='/home/johann/Documents/SSL_64_3_0.75_RELU_KD/' + str(2021),
-    model_directory='/home/johann/Documents/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year),
+    model_directory='/home/johann/Documents/Experiments SUBTAB/SUBTAB_ENC_NODP_SWAP_SPARSE/' + str(year),
     save_steps = 5,
     finetuning = True,
     unfreeze=False,

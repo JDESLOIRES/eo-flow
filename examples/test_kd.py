@@ -4,7 +4,7 @@ import pandas as pd
 import eoflow.models.tempnets_task.mlp_tempnets as mlp_tempnets
 import numpy as np
 import os
-
+import tensorflow as tf
 import matplotlib.pyplot as plt
 ""
 ########################################################################################################################
@@ -50,22 +50,24 @@ training_x, val_x, test_x = np.concatenate([training_dyn, training_x_static], ax
                             np.concatenate([val_x_dyn, val_x_static], axis = 1),\
                             np.concatenate([test_x_dyn, test_x_static], axis = 1)
 
+
 path_experiments = '/home/johann/Documents/Experiments SUBTAB/training_final_scaled_is_paper'
 training_x_is_dyn, training_x_is_static, \
 val_x_is_dyn, val_x_is_static,\
 test_x_is_dyn, test_x_is_static, \
 training_y, val_y, test_y = load_gdd_data(path_training=path_experiments,
                                           group=os.path.join(str(year), 'fold_1'))
+ls_feat = np.load(os.path.join(path_experiments, '2021/fold_1/list_features_satellite_features.npy'), allow_pickle=True)
 
 training_x_is, val_x_is, test_x_is = np.concatenate([training_x_is_dyn, training_x_is_static], axis = 1),\
                                      np.concatenate([val_x_is_dyn, val_x_is_static], axis = 1),\
                                      np.concatenate([test_x_is_dyn, test_x_is_static], axis = 1)
-
+training_x_is_dyn.shape
 
 
 model_cfg_mlp = {
     "learning_rate": 10e-4,
-    "keep_prob": 0.5,  # should keep 0.8
+    "keep_prob": 0.85,  # should keep 0.8
     "nb_fc_neurons": 64,
     "nb_fc_stacks": 3,  # Nb FCN layers
     "kernel_initializer": 'he_normal',
@@ -92,19 +94,18 @@ model_student = mlp_tempnets.MLP(model_cfg_mlp)
 model_student.prepare()
 
 
-
 '''
 model_student.fit_unsupervised(
     x_dynamic=training_x_is_dyn,
     x_static=training_x_is_static,
     x_orig=np.concatenate([training_dyn, training_x_static], axis = 1),
-    num_epochs=50,
+    num_epochs=100,
     batch_size=8,
     p_m=0.075, noise_level=0.15,
     temperature= 0.01, #0.1,
     permut=True,
     rho= 0.05,
-    model_directory='/home/johann/Documents/STUDENT_PRETRAIN/' + str(year)
+    model_directory='/home/johann/Documents/STUDENT_PRETRAIN_V2/' + str(year)
 )
 
 
@@ -113,26 +114,51 @@ model_cnn.fit_unsupervised(
     x_dynamic=training_dyn,
     x_static=training_x_static,
     x_orig=np.concatenate([training_dyn, training_x_static], axis = 1),
-    num_epochs=50,
+    num_epochs=100,
     batch_size=8,
     p_m=0.075, noise_level=0.15,
     temperature= 0.01, #0.1,
     permut=True,
     rho= 0.05,
-    model_directory='/home/johann/Documents/TEACHER_PRETRAIN/' + str(year)
+    model_directory='/home/johann/Documents/TEACHER_PRETRAIN_V2/' + str(year)
 )
 '''
-
 
 
 #model_student.load_weights()
 
 ##TODO : Save final model with encoder weights in
+model_cfg_mlp = {
+    "learning_rate": 10e-4,
+    "keep_prob": 0.65,  # should keep 0.8
+    "nb_fc_neurons": 64,
+    "nb_fc_stacks": 3,  # Nb FCN layers
+    "kernel_initializer": 'he_normal',
+    "increase": True,
+    "reduce": False,
+    "batch_norm": True,
+    "metrics": "r_square",
+    "kernel_regularizer": 1e-7,
+    "loss": "mse",
+    "multibranch": False,
+    "multioutput": False,
+    "adaptative" : True,
+    "ema": False,
+    "layer_before" : 1
+}
 
-self = model_cnn
+
+model_cnn = mlp_tempnets.MLP(model_cfg_mlp)
+# Prepare the model (must be run before training)
+model_cnn.prepare()
+
+model_student = mlp_tempnets.MLP(model_cfg_mlp)
+# Prepare the model (must be run before training)
+model_student.prepare()
+
 
 model_cnn.fit_kd(
-    src_dataset=(training_x, training_y),
+    src_dataset=(training_x_is, training_y),
     trgt_dataset=(training_x_is, training_y),
     #train_dataset=(training_x, training_y),
     val_dataset=(val_x_is, val_y),
@@ -143,12 +169,13 @@ model_cnn.fit_kd(
     batch_size=12,
     patience=50,
     temperature=1,
-    gamma_=0.2,
-    lamda_=0.5,#fmap
+    gamma_=0, #0.2
+    lamda_=0,# 0.5 fmap
     reduce_lr=True,
+    finetuning=True,
     model_directory='/home/johann/Documents/KD/',
-    pretrain_student_path='/home/johann/Documents/STUDENT_PRETRAIN/' + str(2021),
-    pretrain_teacher_path='/home/johann/Documents/TEACHER_PRETRAIN/' + str(2021),
+    #pretrain_student_path='/home/johann/Documents/STUDENT_PRETRAIN/' + str(year),
+    #pretrain_teacher_path='/home/johann/Documents/TEACHER_PRETRAIN/' + str(year),
 )
 
 

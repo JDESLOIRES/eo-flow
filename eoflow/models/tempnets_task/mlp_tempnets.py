@@ -12,6 +12,7 @@ from eoflow.models.tempnets_task.tempnets_base import BaseTempnetsModel, BaseCus
 
 from eoflow.models import transformer_encoder_layers
 from eoflow.models import pse_tae_layers
+from eoflow.models.layers import Sampling
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -41,6 +42,7 @@ class MLP(BaseCustomTempnetsModel):
         adaptative = fields.Bool(missing=False, description='increase lr')
         factor = fields.Float(missing=1.0, description='increase lr')
         layer_before = fields.Int(missing=1, description='increase lr')
+        variational = fields.Bool(missing=False, description='variational encoder for reconstruction purposes')
         n_output = fields.Int(missing=1, description='Number of output neurons.')
 
     def _fcn_layer(self, net, i):
@@ -74,9 +76,17 @@ class MLP(BaseCustomTempnetsModel):
         net = x
 
         for i in range(self.config.nb_fc_stacks):
-            net = self._fcn_layer(net, i)
             if (self.config.nb_fc_stacks - (i+1)) == self.config.layer_before:
+                if self.config.variational:
+                    dense_mean = self._fcn_layer(net, i)
+                    dense_log_var = self._fcn_layer(net, i)
+                    net = Sampling()((dense_mean, dense_log_var))
+                else:
+                    net = self._fcn_layer(net, i)
                 enc = net
+            else:
+                net = self._fcn_layer(net, i)
+
 
         output = tf.keras.layers.Dense(units=self.config.n_output,
                                        activation='linear',

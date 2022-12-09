@@ -10,7 +10,9 @@ from eoflow.base import BaseModelTraining, BaseModelCustomTraining, \
     BaseModelMultibranch, BaseModelSelfTraining, BaseModelForecast, BaseModelKD, BaseModelSelfTrainingV2
 import tensorflow as tensorflow
 
-from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, CosineSim, GaussianNLL, LaplacianNLL
+from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, \
+    CosineSim, GaussianNLL, LaplacianNLL, LCC
+
 from eoflow.models.metrics import InitializableMetric, RSquared
 
 
@@ -32,7 +34,8 @@ dictionary_losses = {
     'gaussian': GaussianNLL,
     'laplacian': LaplacianNLL,
     'rmape' : RMAPE,
-    'rmse' : RMSE
+    'rmse' : RMSE,
+    'lcc' : LCC
 }
 
 # Available metrics. Add keys with new metrics here.
@@ -43,8 +46,10 @@ dictionary_metrics = {
     'accuracy': tf.keras.metrics.CategoricalAccuracy(name='accuracy'),
     'precision': tf.keras.metrics.Precision,
     'recall': tf.keras.metrics.Recall,
-    'r_square' : RSquared
+    'r_square' : RSquared,
+    'lcc': LCC
 }
+
 
 
 class BaseTempnetsModel(BaseModelTraining):

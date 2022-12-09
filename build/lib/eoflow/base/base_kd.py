@@ -52,13 +52,10 @@ class BaseModelKD(BaseModelCustomTraining):
             with tf.GradientTape() as gradients_task:
                 ys_pred, fmap = teacher_model.call(Xs, training=False)
                 fmap_ = tf.nn.softmax(fmap/temperature, axis=-1)
-                #print(tf.reduce_max(fmap_))
                 ys_pred = tf.reshape(ys_pred, tf.shape(ys))
 
                 yt_pred, fmap_student = self.call(Xt, training=True)
                 fmap_student_ = tf.nn.softmax(fmap_student/temperature, axis=-1)
-                #print(tf.reduce_max(fmap_student_))
-
                 yt_pred = tf.reshape(yt_pred, tf.shape(yt))
 
                 cost_student = self.loss(yt, yt_pred) + \
@@ -101,6 +98,7 @@ class BaseModelKD(BaseModelCustomTraining):
                reduce_lr=False,
                pretrain_student_path = None,
                pretrain_teacher_path = None,
+               finetuning = False,
                consis_loss=tf.keras.losses.KLDivergence(),
                criterion=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
                function=np.min):
@@ -128,6 +126,12 @@ class BaseModelKD(BaseModelCustomTraining):
         _ = teacher_model(tf.zeros(list(x_s.shape)))
         if pretrain_teacher_path is not None:
             teacher_model.load_weights(os.path.join(pretrain_teacher_path, 'model'))
+
+        if finetuning and pretrain_student_path and pretrain_teacher_path:
+            for i in range(len(self.encoder.layers)//2 + 1):
+                print(self.layers[0].layers[i])
+                self.layers[0].layers[i].trainable = False
+                teacher_model.layers[0].layers[i].trainable = False
 
         for epoch in range(num_epochs + 1):
             x_s, y_s, x_t, y_t = shuffle(x_s, y_s, x_t, y_t)

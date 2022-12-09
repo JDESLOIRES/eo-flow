@@ -3,6 +3,92 @@ from tensorflow.keras.losses import Loss, Reduction
 #import tensorflow_probability as tfp
 #from keras import backend as K
 
+import numpy as np
+
+
+class LCC(Loss):
+    """
+    Gaussian negative log likelihood to fit the mean and variance to p(y|x)
+    Note: We estimate the heteroscedastic variance. Hence, we include the var_i of sample i in the sum over all samples N.
+    Furthermore, the constant log term is discarded.
+    """
+    def __init__(self, reduction=Reduction.AUTO, name='LCC'):
+        super().__init__(reduction=reduction, name=name)
+
+    def __call__(self, ground_truth, predictions):
+
+        def _convert_float(x):
+            return tf.cast(x, tf.float32)
+
+        predictions= tf.cast(predictions, tf.float32)
+        ground_truth = tf.cast(ground_truth, tf.float32)
+
+        pred_mean, pred_var = tf.nn.moments(predictions, (0,))
+        gt_mean, gt_var = tf.nn.moments(ground_truth, (0,))
+
+        mean_cent_prod = tf.reduce_mean((predictions - pred_mean) * (ground_truth - gt_mean))
+
+        return 1.0 - (2.0 * _convert_float(mean_cent_prod)) / \
+               (_convert_float(pred_var) + _convert_float(gt_var) + tf.square(_convert_float(pred_mean) - _convert_float(gt_mean)))
+
+
+def CCC(y_true, y_pred):
+    '''Lin's Concordance correlation coefficient: https://en.wikipedia.org/wiki/Concordance_correlation_coefficient
+
+    The concordance correlation coefficient is the correlation between two variables that fall on the 45 degree line through the origin.
+
+    It is a product of
+    - precision (Pearson correlation coefficient) and
+    - accuracy (closeness to 45 degree line)
+
+    Interpretation:
+    - `rho_c =  1` : perfect agreement
+    - `rho_c =  0` : no agreement
+    - `rho_c = -1` : perfect disagreement
+
+    Args:
+    - y_true: ground truth
+    - y_pred: predicted values
+
+    Returns:
+    - concordance correlation coefficient (float)
+    '''
+
+    import keras.backend as K
+    # covariance between y_true and y_pred
+    N = K.int_shape(y_pred)[-1]
+    s_xy = 1.0 / (N - 1.0 + K.epsilon()) * K.sum((y_true - K.mean(y_true)) * (y_pred - K.mean(y_pred)))
+    # means
+    x_m = K.mean(y_true)
+    y_m = K.mean(y_pred)
+    # variances
+    s_x_sq = K.var(y_true)
+    s_y_sq = K.var(y_pred)
+
+    # condordance correlation coefficient
+    ccc = (2.0 * s_xy) / (s_x_sq + s_y_sq + (x_m - y_m) ** 2)
+
+    return ccc
+
+
+def CCC_numpy(y_true, y_pred):
+    '''Reference numpy implementation of Lin's Concordance correlation coefficient'''
+
+    # covariance between y_true and y_pred
+    s_xy = np.cov([y_true, y_pred])[0, 1]
+    # means
+    x_m = np.mean(y_true)
+    y_m = np.mean(y_pred)
+    # variances
+    s_x_sq = np.var(y_true)
+    s_y_sq = np.var(y_pred)
+
+    # condordance correlation coefficient
+    ccc = (2.0 * s_xy) / (s_x_sq + s_y_sq + (x_m - y_m) ** 2)
+
+    return ccc
+
+
 class NegLL(Loss):
     """
     Gaussian negative log likelihood to fit the mean and variance to p(y|x)

@@ -9,9 +9,7 @@ from .base_self_supervised import BaseModelCustomTraining
 
 import pickle
 
-
 import tensorflow as tf
-
 
 cosine_sim_1d = tf.keras.losses.CosineSimilarity(axis=1, reduction=tf.keras.losses.Reduction.NONE)
 cosine_sim_2d = tf.keras.losses.CosineSimilarity(axis=2, reduction=tf.keras.losses.Reduction.NONE)
@@ -45,6 +43,7 @@ def _dot_simililarity_dim2(x, y):
     # v shape: (N, 2N)
     return v
 
+
 def get_negative_mask(batch_size):
     # return a mask that removes the similarity score of equal/similar images.
     # this function ensures that only distinct pair of images get their similarity scores
@@ -56,13 +55,13 @@ def get_negative_mask(batch_size):
     return tf.constant(negative_mask)
 
 
-#https://keras.io/examples/vision/semisupervised_simclr/
+# https://keras.io/examples/vision/semisupervised_simclr/
 
 class BaseModelSelfTrainingV2(BaseModelCustomTraining):
     def __init__(self, config_specs):
         BaseModelCustomTraining.__init__(self, config_specs)
 
-    def _init_models_cl(self, input_shape, output_shape, add_layer = False):
+    def _init_models_cl(self, input_shape, output_shape, add_layer=False):
 
         _ = self(tf.zeros(list((1, input_shape))))
         inputs = self.layers[0].input
@@ -72,11 +71,12 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
         z = Dense(self.layers[0].layers[0].input.shape[-1], activation='relu', name='head_1')(latent)
         z = Dense(self.layers[0].layers[0].input.shape[-1], activation=None, name='linear_2')(z)
 
-        decode = self._layer_decoding(latent, nb_neurons = output_shape, activation='linear')
+        decode = self._layer_decoding(latent, nb_neurons=output_shape, activation='linear')
 
         if add_layer:
             output_task = self.layers[0].layers[-2].output
-            output_task = self._layer_decoding(output_task, nb_neurons=self.config.nb_fc_neurons//4, activation='relu')
+            output_task = self._layer_decoding(output_task, nb_neurons=self.config.nb_fc_neurons // 4,
+                                               activation='relu')
             output_task = Dense(1, activation='linear', name='prediction')(output_task)
         else:
             output_task = self.layers[0].layers[-1].output
@@ -103,15 +103,15 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
         return rho * tf.math.log(rho) - rho * tf.math.log(rho_hat) + (1 - rho) \
                * tf.math.log(1 - rho) - (1 - rho) * tf.math.log(1 - rho_hat)
 
-    def unsupervised_step(self, xis, xjs, x_orig, temperature, rho = 0.05):
+    def unsupervised_step(self, xis, xjs, mask_is, mask_js, x_orig, temperature, rho=0.05, mask_loss = True):
 
         criterion = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
         negative_mask = get_negative_mask(tf.shape(xis)[0])
 
-        with tf.GradientTape() as enc_tape,  tf.GradientTape() as dec_tape,  tf.GradientTape() as dist_tape:
-            his, zis, x_reco_is, task_is = self.forward(x = xis, training =True)
-            hjs, zjs, x_reco_js, task_js = self.forward(x = xjs, training=True)
+        with tf.GradientTape() as enc_tape, tf.GradientTape() as dec_tape, tf.GradientTape() as dist_tape:
+            his, zis, x_reco_is, task_is = self.forward(x=xis, training=True)
+            hjs, zjs, x_reco_js, task_js = self.forward(x=xjs, training=True)
 
             # normalize projection feature vectors
             zis = tf.math.l2_normalize(zis, axis=1)
@@ -138,7 +138,15 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
 
             loss_contrastive_ /= 2 * float(tf.shape(xis)[0])
             loss_contrastive = tf.reduce_mean(loss_contrastive_)
-            loss_reconstruction = tf.reduce_mean((self.loss(x_orig, x_reco_is) + self.loss(x_orig, x_reco_js))/2)
+
+            if mask_loss:
+                x_orig_is, x_reco_is = tf.multiply(x_orig, mask_is), tf.multiply(x_reco_is, mask_is)
+                x_orig_js, x_reco_js = tf.multiply(x_orig, mask_js), tf.multiply(x_reco_js, mask_js)
+            else:
+                x_orig_is = x_orig
+                x_orig_js = x_orig
+
+            loss_reconstruction = tf.reduce_mean((self.loss(x_orig_is, x_reco_is) + self.loss(x_orig_js, x_reco_js)) / 2)
 
             if rho:
                 rho_is = tf.reduce_mean(his, axis=0)
@@ -165,20 +173,24 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
         self.projection.loss_metric.update_state(loss_contrastive)
         self.task.loss_metric.update_state(loss_distance)
 
-    def forward(self, x, training = True):
+
+    def forward(self, x, training=True):
         h = self.encoder(x, training)
         z_ = self.projection(h, training)
         x_reco = self.decoder(h, training)
         task = self.task(h, training)
         return h, z_, x_reco, task
 
-    def ssl_train_step(self, x, y_batch_train):
+    def ssl_train_step(self, x, y_batch_train, rho = 0.05):
 
         with tf.GradientTape() as task_tape, tf.GradientTape() as enc_tape:
-
             h = self.encoder(x, training=True)
-            y_pred = self.task(h, training = True)
+            y_pred = self.task(h, training=True)
             loss_task = tf.reduce_mean(self.loss(y_batch_train, y_pred))
+            if rho:
+                rho_is = tf.reduce_mean(h, axis=0)
+                kl = tf.reduce_sum(self.kl_divergence(rho, rho_is + 1e-10))
+                loss_task += 0.01 * kl
             loss_task += (self.task.losses + self.encoder.losses)
 
         gradients = task_tape.gradient(loss_task, self.task.trainable_variables)
@@ -193,7 +205,7 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
     def ssl_val_step(self, x, y_batch_train):
 
         h = self.encoder(x, training=False)
-        y_pred = self.task(h, training = False)
+        y_pred = self.task(h, training=False)
 
         loss_task = self.loss(y_batch_train, y_pred)
         self.loss_metric.update_state(tf.reduce_mean(loss_task))
@@ -201,39 +213,45 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
 
     def fit_unsupervised(self, x_dynamic, x_static, x_orig, model_directory,
                          batch_size=8, num_epochs=500, permut=True,
-                         p_m=0.3, noise_level=0.1, temperature=1, rho = 0.05, **kwargs):
+                         p_m=0.3, noise_level=0.1, temperature=1, rho=0.05, mask_loss = True,
+                         **kwargs):
 
         train_loss = []
 
         self._init_models_cl(
-            input_shape=np.concatenate([x_dynamic, x_static], axis = 1).shape[-1],
+            input_shape=np.concatenate([x_dynamic, x_static], axis=1).shape[-1],
             output_shape=x_orig.shape[-1])
-
 
         for ep in range(num_epochs):
             x_dynamic_, x_static_ = shuffle(x_dynamic, x_static)
             train_ds = tf.data.Dataset.from_tensor_slices((x_dynamic_, x_static_, x_orig)).batch(batch_size)
             for x_dyn_batch_train, x_stat_batch_train, x_orig_batch in train_ds:
-                xis = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
-                                           x_static=x_stat_batch_train.numpy(),
-                                           p_m=p_m, noise_level=noise_level, permut=permut)
+                xis, mask_is = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                    x_static=x_stat_batch_train.numpy(),
+                                                    p_m=p_m, noise_level=noise_level,
+                                                    permut=permut)
 
-                xjs = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
-                                            x_static=x_stat_batch_train.numpy(),
-                                            p_m=p_m, noise_level=noise_level, permut=permut)
+                xjs, mask_js = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                    x_static=x_stat_batch_train.numpy(),
+                                                    p_m=p_m, noise_level=noise_level,
+                                                    permut=permut)
 
-                self.unsupervised_step(xis = xis, xjs = xjs,
-                                       x_orig = x_orig_batch,
+                self.unsupervised_step(xis=xis, xjs=xjs,
+                                       mask_is=mask_is, mask_js=mask_js,
+                                       mask_loss = mask_loss,
+                                       x_orig=x_orig_batch,
                                        temperature=temperature,
-                                       rho= rho)
+                                       rho=rho)
 
             loss_epoch = self.loss_metric.result().numpy()
             loss_reco = self.encoder.loss_metric.result().numpy()
             loss_task = self.task.loss_metric.result().numpy()
             loss_dist = self.projection.loss_metric.result().numpy()
 
-            print('Epoch ' + str(ep) + ' : ' + str(loss_epoch) + '; reconstruction ' + str(loss_reco) + '; task ' + str(loss_task)+ '; distance ' + str(loss_dist))
+            print('Epoch ' + str(ep) + ' : ' + str(loss_epoch) + '; reconstruction ' + str(loss_reco) + '; task ' + str(
+                loss_task) + '; distance ' + str(loss_dist))
             train_loss.append(loss_epoch)
+
             self.loss_metric.reset_states()
             self.encoder.loss_metric.reset_states()
             self.projection.loss_metric.reset_states()
@@ -251,30 +269,42 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
         with open(os.path.join(model_directory, 'history.pickle'), 'wb') as d:
             pickle.dump(losses, d, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def noise_generator(self, x_dynamic, x_static, p_m=0, noise_level=0, permut = False, **kwargs):
+    def noise_generator(self, x_dynamic, x_static, p_m=0, noise_level=0, permut=False, **kwargs):
         # Get subset of features to create list of cropped data
-        x_bar = np.concatenate([x_dynamic, x_static], axis = 1)
-        # Add noise to cropped columns - Noise types: Zero-out, Gaussian, or Swap noise
-        x_bar_noisy = self.generate_noisy_xbar(x_bar, noise_level = noise_level)
-        # Generate binary mask
-        mask = np.random.binomial(1, p_m, x_bar.shape)
-
-        # Replace selected x_bar features with the noisy ones
-        x_bar = x_bar * (1 - mask) + x_bar_noisy * mask
-        #Swap
-        indices = np.random.RandomState(seed=0).permutation(x_bar.shape[1])
-        x_bar_shifted = x_bar[:,indices]
-        mask = np.random.binomial(1, p_m, x_bar.shape)
+        x_bar = np.concatenate([x_dynamic, x_static], axis=1)
+        if noise_level:
+            # Add noise to cropped columns - Noise types: Zero-out, Gaussian, or Swap noise
+            x_bar_noisy = self.generate_noisy_xbar(x_bar, noise_level=noise_level)
+            # Generate binary mask
+            mask_noise = np.random.binomial(1, p_m, x_bar.shape)
+            # Replace selected x_bar features with the noisy ones
+            x_bar = x_bar * (1 - mask_noise) + x_bar_noisy * mask_noise
+        # Swap columns
+        # indices = np.random.RandomState(seed=0).permutation(x_bar.shape[1])
+        # x_bar_shifted = x_bar[:,indices]
+        # Swap obs
         if permut:
+            indices = np.random.RandomState(seed=0).permutation(x_bar.shape[0])
+            x_bar_shifted = x_bar[indices, :]
+            mask = np.random.binomial(1, p_m, x_bar.shape)
             x_bar = x_bar * (1 - mask) + x_bar_shifted * mask
-        return x_bar
-
+        if noise_level and permut:
+            mask += mask_noise
+            mask[mask > 1] = 1
+        elif noise_level and not permut:
+            mask = mask_noise
+        elif not permut and not noise_level:
+            mask = np.zeros(x_bar.shape)
+        return x_bar, mask
 
     def fit_task(self,
                  train_dataset, val_dataset, test_dataset, batch_size, num_epochs, model_directory,
                  save_steps=10, reduce_lr=True, patience=50,
-                 finetuning=False, add_layer=False, unfreeze=False,
+                 finetuning=False, add_layer=False,
+                 unfreeze=False, load_weights = True,
+                 permut = False, p_m = 0, noise_level = 0,
                  function=np.min,
+                 rho = 0,
                  **kwargs):
 
         global val_acc_result
@@ -284,37 +314,34 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
         x_dyn_val, x_stat_val, y_val = val_dataset
         x_dyn_test, x_stat_test, y_test = test_dataset
 
-        dims = np.concatenate([x_dyn_train, x_stat_train], axis = 1).shape[-1]
+        dims = np.concatenate([x_dyn_train, x_stat_train], axis=1).shape[-1]
 
         self._init_models_cl(input_shape=dims,
-                              output_shape=dims,
-                              add_layer = add_layer)
+                             output_shape=dims,
+                             add_layer=add_layer)
 
         _ = self.encoder(tf.zeros([0, dims]))
         _ = self.task(_)
-        self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
 
-        try:
-            self.task.load_weights(os.path.join(model_directory, 'task_model'))
-        except:
-            pass
+        if finetuning or load_weights:
+            self.encoder.load_weights(os.path.join(model_directory, 'encoder_model'))
 
         if finetuning:
-            for i in range(len(self.encoder.layers)//2):
+            for i in range(self.config.layer_before*4 + 1):
                 self.encoder.layers[i].trainable = False
 
         val_ds = tf.data.Dataset.from_tensor_slices((x_dyn_val, x_stat_val, y_val)).batch(batch_size)
         test_ds = tf.data.Dataset.from_tensor_slices((x_dyn_test, x_stat_test, y_test)).batch(batch_size)
 
-        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience//4, factor=0.5)
+        reduce_rl_plateau = self._reduce_lr_on_plateau(patience=patience // 4, factor=0.5)
         wait = 0
 
         for epoch in range(num_epochs):
             if (
-                patience
-                and epoch >= patience
-                and self.config.finetuning
-                and unfreeze
+                    patience
+                    and epoch >= patience
+                    and self.config.finetuning
+                    and unfreeze
             ):
                 for i in range(len(self.encoder.layers)):
                     self.encoder.layers[i].trainable = True
@@ -323,12 +350,13 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
             train_ds = tf.data.Dataset.from_tensor_slices((x_dyn_train_, x_stat_train_, y_train_)).batch(batch_size)
 
             for x_dyn_batch_train, x_stat_batch_train, y_batch_train in train_ds:
-                xis = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
-                                            x_static=x_stat_batch_train.numpy(),
-                                            p_m=0, noise_level=0, permut=False)
+                xis, _ = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                              x_static=x_stat_batch_train.numpy(),
+                                              p_m=p_m, noise_level=noise_level, permut=permut)
 
-                self.ssl_train_step(x = xis,
-                                    y_batch_train=y_batch_train)
+                self.ssl_train_step(x=xis,
+                                    y_batch_train=y_batch_train,
+                                    rho=rho)
 
             loss_epoch = self.loss_metric.result().numpy()
             train_acc_result = self.metric.result().numpy()
@@ -337,26 +365,25 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
             self.loss_metric.reset_states()
             self.metric.reset_states()
 
-            if epoch%save_steps ==0:
-                wait +=1
+            if epoch % save_steps == 0:
+                wait += 1
                 for x_dyn_batch_train, x_stat_batch_train, y_batch_train in val_ds:
-                    x_tilde_val = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
-                                                        x_static=x_stat_batch_train.numpy(),
-                                                        p_m=0, noise_level=0, permut=False
-                                                        )
+                    x_tilde_val, _ = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                          x_static=x_stat_batch_train.numpy(),
+                                                          p_m=0, noise_level=0, permut=False
+                                                          )
                     self.ssl_val_step(x_tilde_val, y_batch_train)
 
                 val_loss_epoch = self.loss_metric.result().numpy()
-                val_loss.append(val_loss_epoch)
-
                 val_acc_result = self.metric.result().numpy()
+                val_loss.append(val_loss_epoch)
                 self.loss_metric.reset_states()
                 self.metric.reset_states()
 
                 for x_dyn_batch_train, x_stat_batch_train, y_batch_train in test_ds:
-                    x_tilde_test = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
-                                                         x_static=x_stat_batch_train.numpy(),
-                                                         p_m=0, noise_level=0, permut=False)
+                    x_tilde_test, _ = self.noise_generator(x_dynamic=x_dyn_batch_train.numpy(),
+                                                           x_static=x_stat_batch_train.numpy(),
+                                                           p_m=0, noise_level=0, permut=False)
                     self.ssl_val_step(x_tilde_test, y_batch_train)
 
                 test_acc_result = self.metric.result().numpy()
@@ -379,14 +406,3 @@ class BaseModelSelfTrainingV2(BaseModelCustomTraining):
 
         self.encoder.save_weights(os.path.join(model_directory, 'encoder_last_model'))
         self.task.save_weights(os.path.join(model_directory, 'task_last_model'))
-
-
-
-
-
-
-
-
-
-
-
