@@ -6,7 +6,7 @@ from tensorflow.keras.layers import Conv1D, LayerNormalization
 # This code is taken from the TF tutorial on transformers
 # https://www.tensorflow.org/tutorials/text/transformer
 def scaled_dot_product_attention(q, k, v, mask=None):
-    """ Calculate the attention weights.
+    """Calculate the attention weights.
     q, k, v must have matching leading dimensions.
     k, v must have matching penultimate dimension, i.e.: seq_len_k = seq_len_v.
     The mask has different shapes depending on its type(padding or look ahead)
@@ -31,11 +31,13 @@ def scaled_dot_product_attention(q, k, v, mask=None):
 
     # add the mask to the scaled tensor.
     if mask is not None:
-        scaled_attention_logits += (mask * -1e9)
+        scaled_attention_logits += mask * -1e9
 
         # softmax is normalized on the last axis (seq_len_k) so that the scores
     # add up to 1.
-    attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1)  # (..., seq_len_q, seq_len_k)
+    attention_weights = tf.nn.softmax(
+        scaled_attention_logits, axis=-1
+    )  # (..., seq_len_q, seq_len_k)
 
     output = tf.matmul(attention_weights, v)  # (..., seq_len_q, depth_v)
 
@@ -78,7 +80,9 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
         # scaled_attention.shape == (batch_size, num_heads, seq_len_q, depth)
         # attention_weights.shape == (batch_size, num_heads, seq_len_q, seq_len_k)
-        scaled_attention, attention_weights = scaled_dot_product_attention(q, k, v, mask)
+        scaled_attention, attention_weights = scaled_dot_product_attention(
+            q, k, v, mask
+        )
 
         # (batch_size, seq_len_q, num_heads, depth)
         scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])
@@ -93,10 +97,12 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
 
 def point_wise_feed_forward_network(d_model, dff):
-    return tf.keras.Sequential([
-      tf.keras.layers.Dense(dff, activation='relu'),  # (batch_size, seq_len, dff)
-      tf.keras.layers.Dense(d_model)  # (batch_size, seq_len, d_model)
-    ])
+    return tf.keras.Sequential(
+        [
+            tf.keras.layers.Dense(dff, activation="relu"),  # (batch_size, seq_len, dff)
+            tf.keras.layers.Dense(d_model),  # (batch_size, seq_len, d_model)
+        ]
+    )
 
 
 def positional_encoding(positions, d_model, T=10000):
@@ -107,14 +113,12 @@ def positional_encoding(positions, d_model, T=10000):
         positions = np.array(positions)
 
     def _get_angles(pos, i, d_model):
-        angle_rates = 1 / np.power(T, (2 * (i//2)) / np.float32(d_model))
+        angle_rates = 1 / np.power(T, (2 * (i // 2)) / np.float32(d_model))
         return pos * angle_rates
 
     depths = np.arange(d_model)
 
-    angle_rads = _get_angles(positions[:, np.newaxis],
-                            depths[np.newaxis, :],
-                            d_model)
+    angle_rads = _get_angles(positions[:, np.newaxis], depths[np.newaxis, :], d_model)
 
     # apply sin to even indices in the array; 2i
     angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
@@ -151,7 +155,17 @@ class EncoderLayer(tf.keras.layers.Layer):
 
 
 class Encoder(tf.keras.layers.Layer):
-    def __init__(self, num_layers, d_model, num_heads, dff, maximum_position_encoding, rate=0.1, layer_norm=False, T=10000):
+    def __init__(
+        self,
+        num_layers,
+        d_model,
+        num_heads,
+        dff,
+        maximum_position_encoding,
+        rate=0.1,
+        layer_norm=False,
+        T=10000,
+    ):
         super(Encoder, self).__init__()
 
         self.d_model = d_model
@@ -163,14 +177,16 @@ class Encoder(tf.keras.layers.Layer):
         # replace embedding with 1d convolution
         self.conv_in = Conv1D(d_model, 1)
         # self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model)
-        self.pos_encoding = positional_encoding(maximum_position_encoding, self.d_model, T=T)
+        self.pos_encoding = positional_encoding(
+            maximum_position_encoding, self.d_model, T=T
+        )
 
-        encoder_layers = [EncoderLayer(d_model, num_heads, dff, rate)
-                          for _ in range(num_layers)]
+        encoder_layers = [
+            EncoderLayer(d_model, num_heads, dff, rate) for _ in range(num_layers)
+        ]
         self.encoder = tf.keras.Sequential(encoder_layers)
 
         self.dropout = tf.keras.layers.Dropout(rate)
-
 
     def call(self, x, training=None, mask=None):
         seq_len = tf.shape(x)[1]

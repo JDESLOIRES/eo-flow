@@ -6,43 +6,44 @@ import os
 ########################################################################################################################
 ########################################################################################################################
 
+
 def reshape_array(x, T=30):
     x = x.reshape(x.shape[0], x.shape[1] // T, T)
     x = np.moveaxis(x, 2, 1)
     return x
 
 
-def npy_concatenate(path, prefix='training_x', T=30):
+def npy_concatenate(path, prefix="training_x", T=30):
     path_npy = os.path.join(path, prefix)
 
-    x = np.load(path_npy + '_S2.npy')
+    x = np.load(path_npy + "_S2.npy")
     x = reshape_array(x, T)
     return x
 
 
-path = '/home/johann/Documents/Syngenta/gdd_training_30/2021'
-x_train = npy_concatenate(path, 'training_x')
+path = "/home/johann/Documents/Syngenta/gdd_training_30/2021"
+x_train = npy_concatenate(path, "training_x")
 # x_train = x_train[..., [10, -1]]
 x_train.shape
-y_train = np.load(os.path.join(path, 'training_y.npy'))
+y_train = np.load(os.path.join(path, "training_y.npy"))
 
-x_val = npy_concatenate(path, 'val_x')
+x_val = npy_concatenate(path, "val_x")
 # x_val = x_val[..., [10, -1]]
-y_val = np.load(os.path.join(path, 'val_y.npy'))
+y_val = np.load(os.path.join(path, "val_y.npy"))
 
-x_test = npy_concatenate(path, 'test_x')
+x_test = npy_concatenate(path, "test_x")
 # x_test = x_test[..., [10, -1]]
-y_test = np.load(os.path.join(path, 'test_y.npy'))
+y_test = np.load(os.path.join(path, "test_y.npy"))
 
-ls_features = np.load(os.path.join(path, 'list_features_S2.npy'))
-'''
+ls_features = np.load(os.path.join(path, "list_features_S2.npy"))
+"""
 model = RandomForestRegressor()
 x_train = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
 x_test = x_test.reshape(x_test.shape[0], x_test.shape[1] * x_test.shape[2])
 model.fit(x_train, y_train)
 preds = model.predict(x_test)
 r2_score(y_test, preds)
-'''
+"""
 # x_train = np.concatenate([x_train, x_val], axis = 0)
 # y_train = np.concatenate([y_train, y_val], axis = 0)
 
@@ -53,7 +54,7 @@ nb_split = x_train.shape[1] // 4
 ###########################################################################
 
 
-'''
+"""
 from sklearn.ensemble import RandomForestRegressor
 model = RandomForestRegressor(max_depth=8)
 x_train = x_train.reshape((x_train.shape[0],x_train.shape[1]*x_train.shape[2]))
@@ -61,26 +62,26 @@ x_test = x_test.reshape((x_test.shape[0],x_test.shape[1]*x_test.shape[2]))
 model.fit(x_train, y_train)
 preds = model.predict(x_test)
 r2_score(y_test, preds)
-'''
+"""
 
 model_cfg_cnn_stride = {
     "learning_rate": 10e-4,
-    'keep_prob_conv': 0.8,
+    "keep_prob_conv": 0.8,
     "keep_prob": 0.5,  # should keep 0.8
     "nb_conv_filters": 10,  # wiorks great with 32
     "nb_conv_stacks": 2,
-    'nb_fc_neurons': 64,
-    'kernel_size': 3,
+    "nb_fc_neurons": 64,
+    "kernel_size": 3,
     "nb_fc_stacks": 2,  # Nb FCN layers
-    "fc_activation": 'relu',
-    'static_fc_neurons': 64,
-    "padding": 'SAME',
+    "fc_activation": "relu",
+    "static_fc_neurons": 64,
+    "padding": "SAME",
     "metrics": "r_square",
     "kernel_regularizer": 1e-7,
     "loss": "mse",
     "reduce": False,
-    'str_inc': True,
-    "ema": False
+    "str_inc": True,
+    "ema": False,
 }
 
 # console 1 et 3 : activation in the layer + flipout
@@ -105,6 +106,5 @@ model_cnn.fit(
     patience=50,
     forget=0,
     reduce_lr=True,
-    model_directory='/home/johann/Documents/model_16_',
+    model_directory="/home/johann/Documents/model_16_",
 )
-

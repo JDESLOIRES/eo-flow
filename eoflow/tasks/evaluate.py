@@ -6,10 +6,15 @@ from ..base.configuration import ObjectConfiguration
 
 class EvaluateTask(BaseTask):
     class EvaluateTaskConfig(Schema):
-        model_directory = fields.String(required=True, description='Directory of the model', example='/tmp/model/')
+        model_directory = fields.String(
+            required=True, description="Directory of the model", example="/tmp/model/"
+        )
 
-        input_config = fields.Nested(nested=ObjectConfiguration, required=True,
-                                     description="Input type and configuration.")
+        input_config = fields.Nested(
+            nested=ObjectConfiguration,
+            required=True,
+            description="Input type and configuration.",
+        )
 
     def run(self):
         dataset = self.parse_input(self.config.input_config)
@@ -20,7 +25,7 @@ class EvaluateTask(BaseTask):
         values = self.model.evaluate(dataset)
         names = self.model.metrics_names
 
-        metrics = {name:value for name,value in zip(names, values)}
+        metrics = {name: value for name, value in zip(names, values)}
 
         # Display metrics
         print("Evaluation results:")

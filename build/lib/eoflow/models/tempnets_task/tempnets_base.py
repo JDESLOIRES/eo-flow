@@ -6,7 +6,7 @@ from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
 from eoflow.base import BaseModelTraining, BaseModelCustomTraining, \
-    BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2, BaseModelSLLTraining, \
+    BaseModelCoTraining, BaseModelAdaptV2, BaseModelSLLTraining, \
     BaseModelMultibranch, BaseModelSelfTraining, BaseModelForecast, BaseModelKD, BaseModelSelfTrainingV2
 import tensorflow as tensorflow
 

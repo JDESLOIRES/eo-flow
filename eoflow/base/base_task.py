@@ -10,7 +10,7 @@ class BaseTask(Configurable):
 
     @staticmethod
     def parse_input(input_config):
-        """ Builds the input dataset using the provided configuration. """
+        """Builds the input dataset using the provided configuration."""
 
         classname, config = input_config.classname, input_config.config
 

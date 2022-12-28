@@ -3,8 +3,9 @@ import os
 import numpy as np
 import tensorflow as tf
 
+
 def numpy_dataset(np_array_dict):
-    """ Creates a tf.data Dataset from a dict of numpy arrays. """
+    """Creates a tf.data Dataset from a dict of numpy arrays."""
 
     # Unpack
     feature_names = list(np_array_dict.keys())
@@ -34,8 +35,9 @@ def numpy_dataset(np_array_dict):
 
     return ds
 
+
 def _read_numpy_file(file_path, fields):
-    """ Reads a single npz file. """
+    """Reads a single npz file."""
 
     data = np.load(file_path)
     np_arrays = [data[f] for f in fields]
@@ -46,8 +48,9 @@ def _read_numpy_file(file_path, fields):
 
     return tuple(np_arrays)
 
+
 def npz_dir_dataset(file_dir_or_list, features, num_parallel=5):
-    """ Creates a tf.data.Dataset from a directory containing numpy .npz files. Files are loaded
+    """Creates a tf.data.Dataset from a directory containing numpy .npz files. Files are loaded
     lazily when needed. `num_parallel` files are read in parallel and interleaved together.
 
     :param file_dir_or_list: directory containing .npz files or a list of paths to .npz files
@@ -66,7 +69,9 @@ def npz_dir_dataset(file_dir_or_list, features, num_parallel=5):
 
     # If dir, then list files
     if isinstance(file_dir_or_list, str):
-        files = [os.path.join(file_dir_or_list, f) for f in os.listdir(file_dir_or_list)]
+        files = [
+            os.path.join(file_dir_or_list, f) for f in os.listdir(file_dir_or_list)
+        ]
 
     fields = list(features.keys())
     feature_names = [features[f] for f in features]
@@ -81,7 +86,7 @@ def npz_dir_dataset(file_dir_or_list, features, num_parallel=5):
     shapes = tuple((None,) + arr.shape[1:] for arr in np_arrays)
 
     def _data_generator(files, fields):
-        """ Returns samples from one file at a time. """
+        """Returns samples from one file at a time."""
         for f in files:
             yield _read_numpy_file(f, fields)
 
@@ -90,13 +95,17 @@ def npz_dir_dataset(file_dir_or_list, features, num_parallel=5):
         return {name: feat for name, feat in zip(feature_names, features)}
 
     # Create dataset
-    ds = tf.data.Dataset.from_generator(lambda:_data_generator(files, fields), types, shapes)
+    ds = tf.data.Dataset.from_generator(
+        lambda: _data_generator(files, fields), types, shapes
+    )
 
     # Prefetch needed amount of files for interleaving
     ds = ds.prefetch(num_parallel)
 
     # Unbatch and interleave
-    ds = ds.interleave(lambda *x: tf.data.Dataset.from_tensor_slices(x), cycle_length=num_parallel)
+    ds = ds.interleave(
+        lambda *x: tf.data.Dataset.from_tensor_slices(x), cycle_length=num_parallel
+    )
     ds = ds.map(_to_dict)
 
     return ds

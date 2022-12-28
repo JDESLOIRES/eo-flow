@@ -13,17 +13,28 @@ _valid_types = [t.value for t in FeatureType]
 
 
 class ExampleInput(BaseInput):
-    """ A simple example of an Input class. Produces random data. """
+    """A simple example of an Input class. Produces random data."""
 
     class _Schema(Schema):
-        input_shape = fields.List(fields.Int, description="Shape of a single input example.", required=True, example=[784])
-        num_classes = fields.Int(description="Number of classes.", required=True, example=10)
+        input_shape = fields.List(
+            fields.Int,
+            description="Shape of a single input example.",
+            required=True,
+            example=[784],
+        )
+        num_classes = fields.Int(
+            description="Number of classes.", required=True, example=10
+        )
 
-        batch_size = fields.Int(description="Number of examples in a batch.", required=True, example=20)
-        batches_per_epoch = fields.Int(required=True, description='Number of batches in epoch', example=20)
+        batch_size = fields.Int(
+            description="Number of examples in a batch.", required=True, example=20
+        )
+        batches_per_epoch = fields.Int(
+            required=True, description="Number of batches in epoch", example=20
+        )
 
     def _generate_batch(self):
-        """ Generator that returns random features and labels. """
+        """Generator that returns random features and labels."""
 
         for i in range(self.config.batches_per_epoch):
             input_shape = [self.config.batch_size] + self.config.input_shape
@@ -44,27 +55,45 @@ class ExampleInput(BaseInput):
         dataset = tf.data.Dataset.from_generator(
             self._generate_batch,
             (tf.float32, tf.float32),
-            (tf.TensorShape(input_shape), tf.TensorShape(output_shape))
+            (tf.TensorShape(input_shape), tf.TensorShape(output_shape)),
         )
 
         return dataset
 
 
 class EOPatchInputExample(BaseInput):
-    """ An example input method for EOPatches. Shows feature reading, subpatch extraction, data augmentation,
-     caching, batching, etc. """
+    """An example input method for EOPatches. Shows feature reading, subpatch extraction, data augmentation,
+    caching, batching, etc."""
 
     # Configuration schema (extended from EOPatchSegmentationInput)
     class _Schema(EOPatchSegmentationInput._Schema):
         # New fields
-        patch_size = fields.List(fields.Int, description="Width and height of extracted patches.", required=True, example=[1,2])
-        num_subpatches = fields.Int(required=True, description="Number of subpatches extracted by random sampling.", example=5)
+        patch_size = fields.List(
+            fields.Int,
+            description="Width and height of extracted patches.",
+            required=True,
+            example=[1, 2],
+        )
+        num_subpatches = fields.Int(
+            required=True,
+            description="Number of subpatches extracted by random sampling.",
+            example=5,
+        )
 
-        interleave_size = fields.Int(description="Number of eopatches to interleave the subpatches from.", required=True, example=5)
-        data_augmentation = fields.Bool(missing=False, description="Use data augmentation on images.")
+        interleave_size = fields.Int(
+            description="Number of eopatches to interleave the subpatches from.",
+            required=True,
+            example=5,
+        )
+        data_augmentation = fields.Bool(
+            missing=False, description="Use data augmentation on images."
+        )
 
         cache_file = fields.String(
-            missing=None, description="A path to the file where the dataset will be cached. No caching if not provided.", example='/tmp/data')
+            missing=None,
+            description="A path to the file where the dataset will be cached. No caching if not provided.",
+            example="/tmp/data",
+        )
 
     @staticmethod
     def _parse_shape(shape):
@@ -77,18 +106,32 @@ class EOPatchInputExample(BaseInput):
 
         # Create a tf.data.Dataset from EOPatches
         features_data = [
-            (cfg.input_feature_type, cfg.input_feature_name, 'features', np.float32, self._parse_shape(cfg.input_feature_shape)),
-            (cfg.labels_feature_type, cfg.labels_feature_name, 'labels', np.int64, self._parse_shape(cfg.labels_feature_shape))
+            (
+                cfg.input_feature_type,
+                cfg.input_feature_name,
+                "features",
+                np.float32,
+                self._parse_shape(cfg.input_feature_shape),
+            ),
+            (
+                cfg.labels_feature_type,
+                cfg.labels_feature_name,
+                "labels",
+                np.int64,
+                self._parse_shape(cfg.labels_feature_shape),
+            ),
         ]
         dataset = eopatch_dataset(self.config.data_dir, features_data, fill_na=-2)
 
         # Extract random subpatches
         extract_fn = extract_subpatches(
             self.config.patch_size,
-            [('features', self.config.input_feature_axis),
-             ('labels', self.config.labels_feature_axis)],
+            [
+                ("features", self.config.input_feature_axis),
+                ("labels", self.config.labels_feature_axis),
+            ],
             random_sampling=True,
-            num_random_samples=self.config.num_subpatches
+            num_random_samples=self.config.num_subpatches,
         )
         # Interleave patches extracted from multiple EOPatches
         dataset = dataset.interleave(extract_fn, self.config.interleave_size)
@@ -100,15 +143,15 @@ class EOPatchInputExample(BaseInput):
         # Data augmentation
         if cfg.data_augmentation:
             feature_augmentation = [
-                ('features', ['flip_left_right', 'rotate', 'brightness']),
-                ('labels', ['flip_left_right', 'rotate'])
+                ("features", ["flip_left_right", "rotate", "brightness"]),
+                ("labels", ["flip_left_right", "rotate"]),
             ]
             dataset = dataset.map(augment_data(feature_augmentation))
 
         # One-hot encode labels and return tuple
         def _prepare_data(data):
-            features = data['features']
-            labels = data['labels'][..., 0]
+            features = data["features"]
+            labels = data["labels"][..., 0]
 
             labels_oh = tf.one_hot(labels, depth=self.config.num_classes)
 

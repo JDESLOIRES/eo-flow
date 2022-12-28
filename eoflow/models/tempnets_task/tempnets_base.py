@@ -5,68 +5,92 @@ import tensorflow as tf
 from marshmallow import Schema, fields
 from marshmallow.validate import OneOf, ContainsOnly
 
-from eoflow.base import BaseModelTraining, BaseModelCustomTraining, \
-    BaseModelCoTraining, BaseModelAdapt, BaseModelAdaptV2, BaseModelSLLTraining, \
-    BaseModelMultibranch, BaseModelSelfTraining, BaseModelForecast, BaseModelKD, BaseModelSelfTrainingV2
+from eoflow.base import (
+    BaseModelTraining,
+    BaseModelCustomTraining,
+    BaseModelCoTraining,
+    BaseModelAdaptV2,
+    BaseModelSLLTraining,
+    BaseModelMultibranch,
+    BaseModelSelfTraining,
+    BaseModelForecast,
+    BaseModelKD,
+    BaseModelSelfTrainingV2,
+)
 import tensorflow as tensorflow
 
-from eoflow.models.losses import CategoricalCrossEntropy, CategoricalFocalLoss, RMAPE, RMSE, PearsonR, \
-    CosineSim, GaussianNLL, LaplacianNLL, LCC
+from eoflow.models.losses import (
+    CategoricalCrossEntropy,
+    CategoricalFocalLoss,
+    RMAPE,
+    RMSE,
+    PearsonR,
+    CosineSim,
+    GaussianNLL,
+    LaplacianNLL,
+    LCC,
+)
 
 from eoflow.models.metrics import InitializableMetric, RSquared
 
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 # Available losses. Add keys with new losses here.
 dictionary_losses = {
-    'mse': tensorflow.keras.losses.MeanSquaredError,
-    'msle': tensorflow.keras.losses.MeanSquaredLogarithmicError,
-    'huber': tensorflow.keras.losses.Huber,
-    'mae': tensorflow.keras.losses.MeanAbsoluteError,
-    'cross_entropy': CategoricalCrossEntropy,
-    'focal_loss': CategoricalFocalLoss,
-    'kl' : tf.keras.losses.KLDivergence,
-    'pearson':  PearsonR,
-    'cosine' : CosineSim,
-    'gaussian': GaussianNLL,
-    'laplacian': LaplacianNLL,
-    'rmape' : RMAPE,
-    'rmse' : RMSE,
-    'lcc' : LCC
+    "mse": tensorflow.keras.losses.MeanSquaredError,
+    "msle": tensorflow.keras.losses.MeanSquaredLogarithmicError,
+    "huber": tensorflow.keras.losses.Huber,
+    "mae": tensorflow.keras.losses.MeanAbsoluteError,
+    "cross_entropy": CategoricalCrossEntropy,
+    "focal_loss": CategoricalFocalLoss,
+    "kl": tf.keras.losses.KLDivergence,
+    "pearson": PearsonR,
+    "cosine": CosineSim,
+    "gaussian": GaussianNLL,
+    "laplacian": LaplacianNLL,
+    "rmape": RMAPE,
+    "rmse": RMSE,
+    "lcc": LCC,
 }
 
 # Available metrics. Add keys with new metrics here.
 dictionary_metrics = {
-    'mse': tf.keras.metrics.MeanSquaredError,
-    'mape': tf.keras.metrics.MeanAbsolutePercentageError,
-    'mae': tf.keras.metrics.MeanAbsoluteError,
-    'accuracy': tf.keras.metrics.CategoricalAccuracy(name='accuracy'),
-    'precision': tf.keras.metrics.Precision,
-    'recall': tf.keras.metrics.Recall,
-    'r_square' : RSquared,
-    'lcc': LCC
+    "mse": tf.keras.metrics.MeanSquaredError,
+    "mape": tf.keras.metrics.MeanAbsolutePercentageError,
+    "mae": tf.keras.metrics.MeanAbsoluteError,
+    "accuracy": tf.keras.metrics.CategoricalAccuracy(name="accuracy"),
+    "precision": tf.keras.metrics.Precision,
+    "recall": tf.keras.metrics.Recall,
+    "r_square": RSquared,
+    "lcc": LCC,
 }
 
 
-
 class BaseTempnetsModel(BaseModelTraining):
-    """ Base for pixel-wise classification models. """
+    """Base for pixel-wise classification models."""
 
     class _Schema(Schema):
-        #n_outputs = fields.Int(required=True, description='Number of output layers', example=1)
-        learning_rate = fields.Float(missing=None, description='Learning rate used in training.', example=0.001)
-        loss = fields.String(missing='mse', description='Loss function used for training.',
-                             validate=OneOf(dictionary_losses.keys()))
-        metrics = fields.List(fields.String, missing=['mse'],
-                              description='List of metrics used for evaluation.',
-                              validate=ContainsOnly(dictionary_metrics.keys()))
-        ema = fields.Bool(missing=True, description='Whether to use ema.')
+        # n_outputs = fields.Int(required=True, description='Number of output layers', example=1)
+        learning_rate = fields.Float(
+            missing=None, description="Learning rate used in training.", example=0.001
+        )
+        loss = fields.String(
+            missing="mse",
+            description="Loss function used for training.",
+            validate=OneOf(dictionary_losses.keys()),
+        )
+        metrics = fields.List(
+            fields.String,
+            missing=["mse"],
+            description="List of metrics used for evaluation.",
+            validate=ContainsOnly(dictionary_metrics.keys()),
+        )
+        ema = fields.Bool(missing=True, description="Whether to use ema.")
 
     def prepare(self, optimizer=None, loss=None, metrics=None, **kwargs):
-        """ Prepares the model. Optimizer, loss and metrics are read using the following protocol:
+        """Prepares the model. Optimizer, loss and metrics are read using the following protocol:
         * If an argument is None, the default value is used from the configuration of the model.
         * If an argument is a key contained in segmentation specific losses/metrics, those are used.
         * Otherwise the argument is passed to `compile` as is.
@@ -74,7 +98,9 @@ class BaseTempnetsModel(BaseModelTraining):
         """
         # Read defaults if None
         if optimizer is None:
-            optimizer = tf.keras.optimizers.Adam(learning_rate=self.config.learning_rate)
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=self.config.learning_rate
+            )
 
         if loss is None:
             loss = self.config.loss
@@ -99,61 +125,95 @@ class BaseTempnetsModel(BaseModelTraining):
         self.compile(optimizer=optimizer, loss=loss, metrics=reported_metrics, **kwargs)
 
     # Override default method to add prediction visualization
-    def train(self,
-              dataset,
-              num_epochs,
-              model_directory,
-              iterations_per_epoch=None,
-              callbacks=[],
-              save_steps='epoch',
-              summary_steps=1, **kwargs):
+    def train(
+        self,
+        dataset,
+        num_epochs,
+        model_directory,
+        iterations_per_epoch=None,
+        callbacks=[],
+        save_steps="epoch",
+        summary_steps=1,
+        **kwargs
+    ):
 
-        super().train(dataset, num_epochs, model_directory, iterations_per_epoch,
-                      callbacks=callbacks, save_steps=save_steps,
-                      summary_steps=summary_steps, **kwargs)
+        super().train(
+            dataset,
+            num_epochs,
+            model_directory,
+            iterations_per_epoch,
+            callbacks=callbacks,
+            save_steps=save_steps,
+            summary_steps=summary_steps,
+            **kwargs
+        )
 
     # Override default method to add prediction visualization
-    def train_and_evaluate(self,
-                           train_dataset,
-                           val_dataset,
-                           num_epochs,
-                           iterations_per_epoch,
-                           model_directory,
-                           save_steps=100,
-                           summary_steps=10,
-                           callbacks=[], **kwargs):
+    def train_and_evaluate(
+        self,
+        train_dataset,
+        val_dataset,
+        num_epochs,
+        iterations_per_epoch,
+        model_directory,
+        save_steps=100,
+        summary_steps=10,
+        callbacks=[],
+        **kwargs
+    ):
 
-        super().train_and_evaluate(train_dataset, val_dataset,
-                                   num_epochs, iterations_per_epoch,
-                                   model_directory,
-                                   save_steps=save_steps, summary_steps=summary_steps,
-                                   callbacks=callbacks, **kwargs)
+        super().train_and_evaluate(
+            train_dataset,
+            val_dataset,
+            num_epochs,
+            iterations_per_epoch,
+            model_directory,
+            save_steps=save_steps,
+            summary_steps=summary_steps,
+            callbacks=callbacks,
+            **kwargs
+        )
 
 
-
-class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2,
-                              BaseModelSLLTraining, BaseModelMultibranch,
-                              BaseModelSelfTraining,BaseModelSelfTrainingV2,
-                              BaseModelForecast,
-                              BaseModelKD):
-    """ Base for pixel-wise classification models. """
+class BaseCustomTempnetsModel(
+    BaseModelCoTraining,
+    BaseModelAdaptV2,
+    BaseModelSLLTraining,
+    BaseModelMultibranch,
+    BaseModelSelfTraining,
+    BaseModelSelfTrainingV2,
+    BaseModelForecast,
+    BaseModelKD,
+):
+    """Base for pixel-wise classification models."""
 
     class _Schema(Schema):
-        #n_outputs = fields.Int(required=True, description='Number of output layers', example=1)
-        learning_rate = fields.Float(missing=None, description='Learning rate used in training.', example=0.001)
-        loss = fields.String(missing='mse', description='Loss function used for training.',
-                             validate=OneOf(dictionary_losses.keys()))
-        metrics = fields.String(missing='mse',
-                                description='List of metrics used for evaluation.',
-                                validate=OneOf(dictionary_metrics.keys()))
-        ema = fields.Bool(missing=True, description='Whether to use ema.')
+        # n_outputs = fields.Int(required=True, description='Number of output layers', example=1)
+        learning_rate = fields.Float(
+            missing=None, description="Learning rate used in training.", example=0.001
+        )
+        loss = fields.String(
+            missing="mse",
+            description="Loss function used for training.",
+            validate=OneOf(dictionary_losses.keys()),
+        )
+        metrics = fields.String(
+            missing="mse",
+            description="List of metrics used for evaluation.",
+            validate=OneOf(dictionary_metrics.keys()),
+        )
+        ema = fields.Bool(missing=True, description="Whether to use ema.")
 
-
-    def prepare(self, optimizer=None, loss=None, metrics=None,
-                loss_metric = tf.keras.metrics.Mean(),
-                reduce_lr = False,
-                **kwargs):
-        """ Prepares the model. Optimizer, loss and metrics are read using the following protocol:
+    def prepare(
+        self,
+        optimizer=None,
+        loss=None,
+        metrics=None,
+        loss_metric=tf.keras.metrics.Mean(),
+        reduce_lr=False,
+        **kwargs
+    ):
+        """Prepares the model. Optimizer, loss and metrics are read using the following protocol:
         * If an argument is None, the default value is used from the configuration of the model.
         * If an argument is a key contained in segmentation specific losses/metrics, those are used.
         * Otherwise the argument is passed to `compile` as is.
@@ -161,7 +221,9 @@ class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2,
         """
         # Read defaults if None
         if optimizer is None:
-            optimizer = tf.keras.optimizers.Adam(learning_rate=self.config.learning_rate)
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=self.config.learning_rate
+            )
 
         if loss is None:
             loss = self.config.loss
@@ -178,15 +240,21 @@ class BaseCustomTempnetsModel(BaseModelCoTraining, BaseModelAdaptV2,
         self.compile(optimizer=optimizer, loss=loss, metrics=self.metric, **kwargs)
 
     # Override default method to add prediction visualization
-    def train_and_evaluate(self,
-                           train_dataset,
-                           val_dataset,
-                           num_epochs,
-                           save_steps,
-                           model_directory,
-                           **kwargs):
+    def train_and_evaluate(
+        self,
+        train_dataset,
+        val_dataset,
+        num_epochs,
+        save_steps,
+        model_directory,
+        **kwargs
+    ):
 
-        super().train_and_evaluate(train_dataset, val_dataset,
-                                   num_epochs, save_steps,
-                                   model_directory,
-                                   **kwargs)
+        super().train_and_evaluate(
+            train_dataset,
+            val_dataset,
+            num_epochs,
+            save_steps,
+            model_directory,
+            **kwargs
+        )

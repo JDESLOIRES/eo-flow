@@ -7,7 +7,7 @@ from ..utils.tf_utils import plot_to_image
 
 
 class CustomReduceLRoP:
-    """ Reduce learning rate when a metric has stopped improving.
+    """Reduce learning rate when a metric has stopped improving.
         Models often benefit from reducing the learning rate by a factor
         of 2-10 once learning stagnates. This callback monitors a
         quantity and if no improvement is seen for a 'patience' number
@@ -38,28 +38,30 @@ class CustomReduceLRoP:
         reduce_exp: reducing the learning rate exponentially
     """
 
-    def __init__(self,
-                 ## Custom modification:  Deprecated due to focusing on validation loss
-                 # monitor='val_loss',
-                 factor=0.1,
-                 patience=30,
-                 verbose=0,
-                 mode='auto',
-                 min_delta=1e-4,
-                 cooldown=0,
-                 min_lr=10e-6,
-                 sign_number=4,
-                 ## Custom modification: Passing optimizer as arguement
-                 optim_lr=None,
-                 ## Custom modification:  Exponentially reducing learning
-                 reduce_lin=False,
-                 **kwargs):
+    def __init__(
+        self,
+        ## Custom modification:  Deprecated due to focusing on validation loss
+        # monitor='val_loss',
+        factor=0.1,
+        patience=30,
+        verbose=0,
+        mode="auto",
+        min_delta=1e-4,
+        cooldown=0,
+        min_lr=10e-6,
+        sign_number=4,
+        ## Custom modification: Passing optimizer as arguement
+        optim_lr=None,
+        ## Custom modification:  Exponentially reducing learning
+        reduce_lin=False,
+        **kwargs
+    ):
 
         ## Custom modification: Optimizer Error Handling
         if tf.is_tensor(optim_lr) == False:
-            raise ValueError('Need optimizer !')
+            raise ValueError("Need optimizer !")
         if factor >= 1.0:
-            raise ValueError('ReduceLROnPlateau ' 'does not support a factor >= 1.0.')
+            raise ValueError("ReduceLROnPlateau " "does not support a factor >= 1.0.")
         ## Custom modification: Passing optimizer as arguement
         self.optim_lr = optim_lr
 
@@ -83,13 +85,15 @@ class CustomReduceLRoP:
         self._reset()
 
     def _reset(self):
-        """Resets wait counter and cooldown counter.
-        """
-        if self.mode not in ['auto', 'min', 'max']:
-            print('Learning Rate Plateau Reducing mode %s is unknown, '
-                  'fallback to auto mode.', self.mode)
-            self.mode = 'auto'
-        if self.mode in ['min', 'auto']:
+        """Resets wait counter and cooldown counter."""
+        if self.mode not in ["auto", "min", "max"]:
+            print(
+                "Learning Rate Plateau Reducing mode %s is unknown, "
+                "fallback to auto mode.",
+                self.mode,
+            )
+            self.mode = "auto"
+        if self.mode in ["min", "auto"]:
             self.monitor_op = lambda a, b: np.less(a, b - self.min_delta)
             self.best = np.Inf
         else:
@@ -105,7 +109,7 @@ class CustomReduceLRoP:
 
         logs = logs or {}
 
-        logs['lr'] = float(self.optim_lr.numpy())
+        logs["lr"] = float(self.optim_lr.numpy())
 
         current = float(loss)
 
@@ -129,9 +133,13 @@ class CustomReduceLRoP:
                         new_lr = old_lr - self.factor
                         ## Custom modification: Error Handling when learning rate is below zero
                         if new_lr <= 0:
-                            print('Learning Rate is below zero: {}, '
-                                  'fallback to minimal learning rate: {}. '
-                                  'Stop reducing learning rate during training.'.format(new_lr, self.min_lr))
+                            print(
+                                "Learning Rate is below zero: {}, "
+                                "fallback to minimal learning rate: {}. "
+                                "Stop reducing learning rate during training.".format(
+                                    new_lr, self.min_lr
+                                )
+                            )
                             self.reduce_lr = False
                     else:
                         new_lr = old_lr * self.factor
@@ -143,8 +151,10 @@ class CustomReduceLRoP:
                     self.optim_lr.assign(new_lr)
 
                     if self.verbose > 0:
-                        print('\nEpoch %05d: ReduceLROnPlateau reducing learning '
-                              'rate to %s.' % (epoch + 1, float(new_lr)))
+                        print(
+                            "\nEpoch %05d: ReduceLROnPlateau reducing learning "
+                            "rate to %s." % (epoch + 1, float(new_lr))
+                        )
                     self.cooldown_counter = self.cooldown
                     self.wait = 0
 
@@ -152,9 +162,8 @@ class CustomReduceLRoP:
         return self.cooldown_counter > 0
 
 
-
 class VisualizationCallback(tf.keras.callbacks.Callback):
-    """ Keras Callback for saving prediction visualizations to TensorBoard. """
+    """Keras Callback for saving prediction visualizations to TensorBoard."""
 
     def __init__(self, val_images, log_dir, time_index=0, rgb_indices=[2, 1, 0]):
         """
@@ -180,18 +189,18 @@ class VisualizationCallback(tf.keras.callbacks.Callback):
         # TODO: fix figsize (too wide?)
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
 
-        scaled_image = np.clip(input_image*2.5, 0., 1.)
+        scaled_image = np.clip(input_image * 2.5, 0.0, 1.0)
         ax1.imshow(scaled_image)
-        ax1.title.set_text('Input image')
+        ax1.title.set_text("Input image")
 
         cnorm = mpl.colors.NoNorm()
-        cmap = plt.cm.get_cmap('Set3', n_classes)
+        cmap = plt.cm.get_cmap("Set3", n_classes)
 
         ax2.imshow(labels, cmap=cmap, norm=cnorm)
-        ax2.title.set_text('Labeled classes')
+        ax2.title.set_text("Labeled classes")
 
         img = ax3.imshow(predictions, cmap=cmap, norm=cnorm)
-        ax3.title.set_text('Predicted classes')
+        ax3.title.set_text("Predicted classes")
 
         plt.colorbar(img, ax=[ax1, ax2, ax3], shrink=0.8, ticks=list(range(n_classes)))
 
@@ -232,7 +241,7 @@ class VisualizationCallback(tf.keras.callbacks.Callback):
         vis_images = tf.concat(vis_images, axis=0)
 
         with self.file_writer.as_default():
-            tf.summary.image('predictions', vis_images, step=step, max_outputs=n_images)
+            tf.summary.image("predictions", vis_images, step=step, max_outputs=n_images)
 
     def on_epoch_end(self, epoch, logs=None):
         self.prediction_summaries(epoch)

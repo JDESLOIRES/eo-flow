@@ -38,6 +38,12 @@ class BaseModelKD(BaseModelCustomTraining):
             teacher_model.optimizer.apply_gradients(zip(grads_task, teacher_model.trainable_variables))
             teacher_model.loss_metric.update_state(cost_teacher)
 
+    @staticmethod
+    def _get_lambda(factor, num_epochs, epoch):
+        p = float(epoch) / (num_epochs)
+        return tf.constant(factor * (2.0 / (1.0 + np.exp(-10.0 * p, dtype=np.float32)) - 1.0),
+                           dtype='float32')
+
     @tf.function
     def trainstep_student(self,
                           teacher_model,
@@ -55,12 +61,13 @@ class BaseModelKD(BaseModelCustomTraining):
                 ys_pred = tf.reshape(ys_pred, tf.shape(ys))
 
                 yt_pred, fmap_student = self.call(Xt, training=True)
-                fmap_student_ = tf.nn.softmax(fmap_student/temperature, axis=-1)
+                #fmap_student_ = tf.nn.softmax(fmap_student/temperature, axis=-1)
                 yt_pred = tf.reshape(yt_pred, tf.shape(yt))
 
-                cost_student = self.loss(yt, yt_pred) + \
-                               lambda_ * criterion(fmap_, fmap_student_) + \
-                               gamma_ * consis_loss((ys_pred + 1e-6), (yt_pred + 1e-6))
+                cost_student = self.loss(yt, yt_pred)  + \
+                               gamma_ * consis_loss(ys_pred, yt_pred)
+                if lambda_>0:
+                    cost_student += lambda_ * criterion(fmap_, fmap_student_)
 
             grads_disc = gradients_task.gradient(cost_student, self.trainable_variables)
 
@@ -99,8 +106,8 @@ class BaseModelKD(BaseModelCustomTraining):
                pretrain_student_path = None,
                pretrain_teacher_path = None,
                finetuning = False,
-               consis_loss=tf.keras.losses.KLDivergence(),
-               criterion=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+               consis_loss=tf.keras.losses.MeanSquaredError(),
+               criterion=tf.keras.losses.MeanSquaredError(),
                function=np.min):
 
         #print('sALUT')
@@ -146,7 +153,14 @@ class BaseModelKD(BaseModelCustomTraining):
             train_loss.append(task_loss_epoch)
             teacher_model.loss_metric.reset_states()
 
-            self.trainstep_student(teacher_model, train_ds, lamda_, gamma_, temperature, consis_loss=consis_loss, criterion=criterion)
+            if self.config.adaptative:
+                lambda_ = self._get_lambda(lamda_, num_epochs, epoch)
+                gamma = self._get_lambda(gamma_, num_epochs, epoch)
+            else:
+                lambda_ = lamda_
+                gamma = gamma_
+
+            self.trainstep_student(teacher_model, train_ds, lambda_, gamma, temperature, consis_loss=consis_loss, criterion=criterion)
             enc_loss_epoch = self.loss_metric.result().numpy()
             train_acc_result = self.metric.result().numpy()
             self.loss_metric.reset_states()

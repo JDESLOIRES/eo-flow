@@ -1,6 +1,12 @@
 import tensorflow as tf
 
-from tensorflow.keras.layers import Activation, SpatialDropout1D, Lambda, UpSampling2D, AveragePooling2D
+from tensorflow.keras.layers import (
+    Activation,
+    SpatialDropout1D,
+    Lambda,
+    UpSampling2D,
+    AveragePooling2D,
+)
 from tensorflow.keras.layers import Conv1D, BatchNormalization, LayerNormalization
 
 
@@ -11,6 +17,7 @@ import tensorflow as tf
 #######################################################################################################################
 class Sampling(tf.keras.layers.Layer):
     """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
     def __int__(self):
         pass
 
@@ -22,25 +29,27 @@ class Sampling(tf.keras.layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 
-
 class ResidualBlock(tf.keras.layers.Layer):
-    """ Code taken from keras-tcn implementation on available on
-    https://github.com/philipperemy/keras-tcn/blob/master/tcn/tcn.py#L140 """
-    def __init__(self,
-                 dilation_rate,
-                 nb_filters,
-                 kernel_size,
-                 padding,
-                 activation='relu',
-                 dropout_rate=0,
-                 kernel_initializer='he_normal',
-                 kernel_regularizer = 0,
-                 use_batch_norm=False,
-                 use_layer_norm=False,
-                 last_block=True,
-                 **kwargs):
+    """Code taken from keras-tcn implementation on available on
+    https://github.com/philipperemy/keras-tcn/blob/master/tcn/tcn.py#L140"""
 
-        """ Defines the residual block for the WaveNet TCN
+    def __init__(
+        self,
+        dilation_rate,
+        nb_filters,
+        kernel_size,
+        padding,
+        activation="relu",
+        dropout_rate=0,
+        kernel_initializer="he_normal",
+        kernel_regularizer=0,
+        use_batch_norm=False,
+        use_layer_norm=False,
+        last_block=True,
+        **kwargs,
+    ):
+
+        """Defines the residual block for the WaveNet TCN
 
         :param dilation_rate: The dilation power of 2 we are using for this residual block
         :param nb_filters: The number of convolutional filters to use in this block
@@ -81,23 +90,35 @@ class ResidualBlock(tf.keras.layers.Layer):
         """
         self.residual_layers.append(layer)
         self.residual_layers[-1].build(self.res_output_shape)
-        self.res_output_shape = self.residual_layers[-1].compute_output_shape(self.res_output_shape)
+        self.res_output_shape = self.residual_layers[-1].compute_output_shape(
+            self.res_output_shape
+        )
 
     def build(self, input_shape):
 
-        with tf.keras.backend.name_scope(self.name):  # name scope used to make sure weights get unique names
+        with tf.keras.backend.name_scope(
+            self.name
+        ):  # name scope used to make sure weights get unique names
             self.res_output_shape = input_shape
 
             for k in range(2):
-                name = f'conv1D_{k}'
-                with tf.keras.backend.name_scope(name):  # name scope used to make sure weights get unique names
-                    self._add_and_activate_layer(Conv1D(filters=self.nb_filters,
-                                                        kernel_size=self.kernel_size,
-                                                        dilation_rate=self.dilation_rate,
-                                                        padding=self.padding,
-                                                        name=name,
-                                                        kernel_regularizer = tf.keras.regularizers.l2(self.kernel_regularizer),
-                                                        kernel_initializer=self.kernel_initializer))
+                name = f"conv1D_{k}"
+                with tf.keras.backend.name_scope(
+                    name
+                ):  # name scope used to make sure weights get unique names
+                    self._add_and_activate_layer(
+                        Conv1D(
+                            filters=self.nb_filters,
+                            kernel_size=self.kernel_size,
+                            dilation_rate=self.dilation_rate,
+                            padding=self.padding,
+                            name=name,
+                            kernel_regularizer=tf.keras.regularizers.l2(
+                                self.kernel_regularizer
+                            ),
+                            kernel_initializer=self.kernel_initializer,
+                        )
+                    )
 
                 if self.use_batch_norm:
                     self._add_and_activate_layer(BatchNormalization())
@@ -105,35 +126,44 @@ class ResidualBlock(tf.keras.layers.Layer):
                     self._add_and_activate_layer(LayerNormalization())
 
                 self._add_and_activate_layer(SpatialDropout1D(rate=self.dropout_rate))
-                self._add_and_activate_layer(Activation('relu'))
-
+                self._add_and_activate_layer(Activation("relu"))
 
             if not self.last_block:
                 # 1x1 conv to match the shapes (channel dimension).
-                name = f'conv1D_{k+1}'
+                name = f"conv1D_{k+1}"
                 with tf.keras.backend.name_scope(name):
                     # make and build this layer separately because it directly uses input_shape
-                    self.shape_match_conv = Conv1D(filters=self.nb_filters,
-                                                   kernel_size=1,
-                                                   padding='same',
-                                                   name=name,
-                                                   kernel_regularizer = tf.keras.regularizers.l2(self.kernel_regularizer),
-                                                   kernel_initializer=self.kernel_initializer)
+                    self.shape_match_conv = Conv1D(
+                        filters=self.nb_filters,
+                        kernel_size=1,
+                        padding="same",
+                        name=name,
+                        kernel_regularizer=tf.keras.regularizers.l2(
+                            self.kernel_regularizer
+                        ),
+                        kernel_initializer=self.kernel_initializer,
+                    )
 
             else:
-                self.shape_match_conv = Lambda(lambda x: x, name='identity')
+                self.shape_match_conv = Lambda(lambda x: x, name="identity")
 
             self.shape_match_conv.build(input_shape)
-            self.res_output_shape = self.shape_match_conv.compute_output_shape(input_shape)
+            self.res_output_shape = self.shape_match_conv.compute_output_shape(
+                input_shape
+            )
 
             self.final_activation = Activation(self.activation)
-            self.final_activation.build(self.res_output_shape)  # probably isn't necessary
+            self.final_activation.build(
+                self.res_output_shape
+            )  # probably isn't necessary
 
             # this is done to force keras to add the layers in the list to self._layers
             for layer in self.residual_layers:
                 self.__setattr__(layer.name, layer)
 
-            super(ResidualBlock, self).build(input_shape)  # done to make sure self.built is set True
+            super(ResidualBlock, self).build(
+                input_shape
+            )  # done to make sure self.built is set True
 
     def call(self, inputs, training=None):
         """
@@ -155,14 +185,23 @@ class ResidualBlock(tf.keras.layers.Layer):
         return [self.res_output_shape, self.res_output_shape]
 
 
-
 class Conv2D(tf.keras.layers.Layer):
-    """ Multiple repetitions of 2d convolution, batch normalization and dropout layers. """
+    """Multiple repetitions of 2d convolution, batch normalization and dropout layers."""
 
-    def __init__(self, filters, kernel_size=3,
-                 strides=1, dilation=1, padding='VALID',
-                 add_dropout=True,
-                 dropout_rate=0.2, activation='relu', batch_normalization=False, use_bias=True, num_repetitions=1):
+    def __init__(
+        self,
+        filters,
+        kernel_size=3,
+        strides=1,
+        dilation=1,
+        padding="VALID",
+        add_dropout=True,
+        dropout_rate=0.2,
+        activation="relu",
+        batch_normalization=False,
+        use_bias=True,
+        num_repetitions=1,
+    ):
         super().__init__()
 
         repetitions = []
@@ -207,30 +246,57 @@ class ResConv2D(tf.keras.layers.Layer):
 
     """
 
-    def __init__(self, filters, kernel_size=3, strides=1, dilation=1, padding='VALID', add_dropout=True,
-                 dropout_rate=0.2, activation='relu', use_bias=True, batch_normalization=False, num_parallel=1):
+    def __init__(
+        self,
+        filters,
+        kernel_size=3,
+        strides=1,
+        dilation=1,
+        padding="VALID",
+        add_dropout=True,
+        dropout_rate=0.2,
+        activation="relu",
+        use_bias=True,
+        batch_normalization=False,
+        num_parallel=1,
+    ):
         super().__init__()
 
         if isinstance(kernel_size, list) and len(kernel_size) != num_parallel:
-            raise ValueError('Number of specified kernel sizes needs to match num_parallel')
+            raise ValueError(
+                "Number of specified kernel sizes needs to match num_parallel"
+            )
 
         if isinstance(dilation, list) and len(dilation) != num_parallel:
-            raise ValueError('Number of specified dilation rate sizes needs to match num_parallel')
+            raise ValueError(
+                "Number of specified dilation rate sizes needs to match num_parallel"
+            )
 
-        kernel_list = kernel_size if isinstance(kernel_size, list) else [kernel_size]*num_parallel
-        dilation_list = dilation if isinstance(dilation, list) else [dilation]*num_parallel
+        kernel_list = (
+            kernel_size
+            if isinstance(kernel_size, list)
+            else [kernel_size] * num_parallel
+        )
+        dilation_list = (
+            dilation if isinstance(dilation, list) else [dilation] * num_parallel
+        )
 
-        self.convs = [Conv2D(filters,
-                             kernel_size=k,
-                             strides=strides,
-                             dilation=d,
-                             padding=padding,
-                             activation=activation,
-                             add_dropout=add_dropout,
-                             dropout_rate=dropout_rate,
-                             use_bias=use_bias,
-                             batch_normalization=batch_normalization,
-                             num_repetitions=2) for k, d in zip(kernel_list, dilation_list)]
+        self.convs = [
+            Conv2D(
+                filters,
+                kernel_size=k,
+                strides=strides,
+                dilation=d,
+                padding=padding,
+                activation=activation,
+                add_dropout=add_dropout,
+                dropout_rate=dropout_rate,
+                use_bias=use_bias,
+                batch_normalization=batch_normalization,
+                num_repetitions=2,
+            )
+            for k, d in zip(kernel_list, dilation_list)
+        ]
 
         self.add = tf.keras.layers.Add()
 
@@ -241,10 +307,21 @@ class ResConv2D(tf.keras.layers.Layer):
 
 
 class Conv3D(tf.keras.layers.Layer):
-    """ Multiple repetitions of 3d convolution, batch normalization and dropout layers. """
+    """Multiple repetitions of 3d convolution, batch normalization and dropout layers."""
 
-    def __init__(self, filters, kernel_size=3, strides=1, padding='VALID', add_dropout=True, dropout_rate=0.2,
-                 batch_normalization=False, use_bias=True, num_repetitions=1, convolve_time=True):
+    def __init__(
+        self,
+        filters,
+        kernel_size=3,
+        strides=1,
+        padding="VALID",
+        add_dropout=True,
+        dropout_rate=0.2,
+        batch_normalization=False,
+        use_bias=True,
+        num_repetitions=1,
+        convolve_time=True,
+    ):
         super().__init__()
 
         repetitions = []
@@ -260,7 +337,7 @@ class Conv3D(tf.keras.layers.Layer):
                     strides=strides,
                     padding=padding,
                     use_bias=use_bias,
-                    activation='relu',
+                    activation="relu",
                 )
             ]
 
@@ -281,18 +358,20 @@ class Conv3D(tf.keras.layers.Layer):
 
 
 class Deconv2D(tf.keras.layers.Layer):
-    """ 2d transpose convolution with optional batch normalization. """
+    """2d transpose convolution with optional batch normalization."""
 
     def __init__(self, filters, kernel_size=2, batch_normalization=False):
         super().__init__()
 
-        layer = [tf.keras.layers.Conv2DTranspose(
-            filters=filters,
-            kernel_size=kernel_size,
-            strides=kernel_size,
-            padding='SAME',
-            activation='relu'
-        )]
+        layer = [
+            tf.keras.layers.Conv2DTranspose(
+                filters=filters,
+                kernel_size=kernel_size,
+                strides=kernel_size,
+                padding="SAME",
+                activation="relu",
+            )
+        ]
 
         if batch_normalization:
             layer.append(tf.keras.layers.BatchNormalization())
@@ -304,7 +383,8 @@ class Deconv2D(tf.keras.layers.Layer):
 
 
 class CropAndConcat(tf.keras.layers.Layer):
-    """ Layer that crops the first tensor and concatenates it with the second. Used for skip connections. """
+    """Layer that crops the first tensor and concatenates it with the second. Used for skip connections."""
+
     @staticmethod
     def call(x1, x2):
         # Crop x1 to shape of x2
@@ -326,9 +406,7 @@ class MaxPool3D(tf.keras.layers.Layer):
         strides = (tstride, strides, strides)
 
         self.layer = tf.keras.layers.MaxPool3D(
-            pool_size=kernel_shape,
-            strides=strides,
-            padding='SAME'
+            pool_size=kernel_shape, strides=strides, padding="SAME"
         )
 
     def call(self, inputs, training=None):
@@ -336,9 +414,11 @@ class MaxPool3D(tf.keras.layers.Layer):
 
 
 class Reduce3DTo2D(tf.keras.layers.Layer):
-    """ Reduces 3d representations into 2d using 3d convolution over the whole time dimension. """
+    """Reduces 3d representations into 2d using 3d convolution over the whole time dimension."""
 
-    def __init__(self, filters, kernel_size=3, stride=1, add_dropout=False, dropout_rate=0.2):
+    def __init__(
+        self, filters, kernel_size=3, stride=1, add_dropout=False, dropout_rate=0.2
+    ):
         super().__init__()
 
         self.filters = filters
@@ -350,13 +430,15 @@ class Reduce3DTo2D(tf.keras.layers.Layer):
 
     def build(self, input_size):
         t_size = input_size[1]
-        layer = [tf.keras.layers.Conv3D(
-            self.filters,
-            kernel_size=(t_size, self.kernel_size, self.kernel_size),
-            strides=(1, self.stride, self.stride),
-            padding='VALID',
-            activation='relu'
-        )]
+        layer = [
+            tf.keras.layers.Conv3D(
+                self.filters,
+                kernel_size=(t_size, self.kernel_size, self.kernel_size),
+                strides=(1, self.stride, self.stride),
+                padding="VALID",
+                activation="relu",
+            )
+        ]
 
         if self.add_dropout:
             layer.append(tf.keras.layers.Dropout(rate=self.dropout_rate))
@@ -380,7 +462,14 @@ class PyramidPoolingModule(tf.keras.layers.Layer):
 
     PyTorch implementation https://github.com/hszhao/semseg/blob/master/model/pspnet.py
     """
-    def __init__(self, filters, bins=(1, 2, 4, 8), interpolation='bilinear', batch_normalization=False):
+
+    def __init__(
+        self,
+        filters,
+        bins=(1, 2, 4, 8),
+        interpolation="bilinear",
+        batch_normalization=False,
+    ):
         super().__init__()
 
         self.filters = filters
@@ -399,15 +488,18 @@ class PyramidPoolingModule(tf.keras.layers.Layer):
             size_factors = height // bin_size, width // bin_size
 
             layer = tf.keras.Sequential()
-            layer.add(AveragePooling2D(pool_size=size_factors,
-                                       padding='same'))
-            layer.add(tf.keras.layers.Conv2D(filters=self.filters//len(self.bins),
-                                             kernel_size=1,
-                                             padding='same',
-                                             use_bias=False))
+            layer.add(AveragePooling2D(pool_size=size_factors, padding="same"))
+            layer.add(
+                tf.keras.layers.Conv2D(
+                    filters=self.filters // len(self.bins),
+                    kernel_size=1,
+                    padding="same",
+                    use_bias=False,
+                )
+            )
             if self.batch_normalization:
                 layer.add(BatchNormalization())
-            layer.add(Activation('relu'))
+            layer.add(Activation("relu"))
 
             layer.add(UpSampling2D(size=size_factors, interpolation=self.interpolation))
 
@@ -416,7 +508,7 @@ class PyramidPoolingModule(tf.keras.layers.Layer):
         self.layers = layers
 
     def call(self, inputs, training=None):
-        """ Concatenate the output of the pooling layers, resampled to original size """
+        """Concatenate the output of the pooling layers, resampled to original size"""
         _, height, width, _ = inputs.shape
 
         outputs = [inputs]

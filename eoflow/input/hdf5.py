@@ -3,8 +3,9 @@ import os
 import h5py
 import tensorflow as tf
 
+
 def hdf5_dataset(path, features):
-    """ Creates a tf.data.Dataset from a hdf5 file
+    """Creates a tf.data.Dataset from a hdf5 file
 
     :param path: path to the hdf5 file,
     :type path: str
@@ -21,7 +22,7 @@ def hdf5_dataset(path, features):
 
     # Reads dataset row by row
     def _generator():
-        with h5py.File(path, 'r') as file:
+        with h5py.File(path, "r") as file:
             datasets = [file[field] for field in fields]
             for row in zip(*datasets):
                 yield row
@@ -31,7 +32,7 @@ def hdf5_dataset(path, features):
         return {name: feat for name, feat in zip(feature_names, features)}
 
     # Reads hdf5 metadata (types and shapes)
-    with h5py.File(path, 'r') as file:
+    with h5py.File(path, "r") as file:
         datasets = [file[field] for field in fields]
 
         types = tuple(ds.dtype for ds in datasets)
