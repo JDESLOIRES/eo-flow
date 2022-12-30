@@ -1,4 +1,4 @@
-'''
+"""
 class ResBlock(Layer):
     def __init__(self, channels, **kwargs):
         super().__init__()
@@ -120,4 +120,4 @@ class ResGRU(ConvGRU):
 
         self.return_sequences = return_sequences
         self.time_steps = time_steps
-'''
+"""

@@ -440,7 +440,7 @@ class TempCNNModel(BaseCustomTempnetsModel):
     def _cnn_layer(self, net, i=0, first=False):
 
         dropout_rate = 1 - self.config.keep_prob_conv
-        filters = self.config.nb_units
+        filters = self.config.nb_conv_filters
         kernel_size = self.config.kernel_size
         n_strides = self.config.n_strides
 

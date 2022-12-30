@@ -23,12 +23,14 @@ def create_dirs(dirs):
 
 
 def get_common_shape(shape1, shape2):
-    """ Get a common shape that fits both shapes. Dimensions that differ in size are set to None.
-        Example: [None, 20, 100, 50], [None, 20, 200, 50] -> [None, 20, None, 50]
+    """Get a common shape that fits both shapes. Dimensions that differ in size are set to None.
+    Example: [None, 20, 100, 50], [None, 20, 200, 50] -> [None, 20, None, 50]
     """
     if len(shape1) != len(shape2):
         raise ValueError("Can't compute common shape. Ndims is different.")
 
-    common_shape = [dim1 if dim1==dim2 else None for dim1, dim2 in zip(shape1, shape2)]
+    common_shape = [
+        dim1 if dim1 == dim2 else None for dim1, dim2 in zip(shape1, shape2)
+    ]
 
     return common_shape

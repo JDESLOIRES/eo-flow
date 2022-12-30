@@ -5,9 +5,14 @@ import tensorflow as tf
 from ..utils import create_dirs
 
 
-def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=False, num_random_samples=20,
-                       grid_overlap=0.2):
-    """ Builds a TF op for building a dataset of subpatches from tensors. Subpatches sampling can be random or grid based.
+def extract_subpatches(
+    patch_size,
+    spatial_features_and_axis,
+    random_sampling=False,
+    num_random_samples=20,
+    grid_overlap=0.2,
+):
+    """Builds a TF op for building a dataset of subpatches from tensors. Subpatches sampling can be random or grid based.
 
     :param patch_size: Width and height of extracted patches
     :type patch_size: (int, int)
@@ -30,15 +35,19 @@ def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=Fa
         # Get random coordinates
 
         def _py_get_random(image):
-            x_space = image.shape[ax_ref]-patch_w
+            x_space = image.shape[ax_ref] - patch_w
             if x_space > 0:
-                x_rand = np.random.randint(x_space, size=num_random_samples, dtype=np.int64)
+                x_rand = np.random.randint(
+                    x_space, size=num_random_samples, dtype=np.int64
+                )
             else:
                 x_rand = np.zeros(num_random_samples, np.int64)
 
-            y_space = image.shape[ay_ref]-patch_h
+            y_space = image.shape[ay_ref] - patch_h
             if y_space > 0:
-                y_rand = np.random.randint(y_space, size=num_random_samples, dtype=np.int64)
+                y_rand = np.random.randint(
+                    y_space, size=num_random_samples, dtype=np.int64
+                )
             else:
                 y_rand = np.zeros(num_random_samples, np.int64)
 
@@ -93,9 +102,13 @@ def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=Fa
             return tl_x, tl_y
 
         if random_sampling:
-            x_samp, y_samp = tf.py_function(_py_get_random, [data[feat_name_ref]], [tf.int64, tf.int64])
+            x_samp, y_samp = tf.py_function(
+                _py_get_random, [data[feat_name_ref]], [tf.int64, tf.int64]
+            )
         else:
-            x_samp, y_samp = tf.py_function(_py_get_gridded, [data[feat_name_ref]], [tf.int64, tf.int64])
+            x_samp, y_samp = tf.py_function(
+                _py_get_gridded, [data[feat_name_ref]], [tf.int64, tf.int64]
+            )
 
         def _py_get_patches(axis):
             ay, ax = axis
@@ -109,22 +122,22 @@ def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=Fa
                 y_pad = max(0, patch_h - image.shape[ay])
 
                 if x_pad > 0 or y_pad > 0:
-                    pad_x1 = x_pad//2
+                    pad_x1 = x_pad // 2
                     pad_x2 = x_pad - pad_x1
-                    pad_y1 = y_pad//2
+                    pad_y1 = y_pad // 2
                     pad_y2 = y_pad - pad_y1
 
-                    padding = [(0,0) for _ in range(image.ndim)]
-                    padding[ax] = (pad_x1,pad_x2)
-                    padding[ay] = (pad_y1,pad_y2)
-                    image = np.pad(image, padding, 'constant')
+                    padding = [(0, 0) for _ in range(image.ndim)]
+                    padding[ax] = (pad_x1, pad_x2)
+                    padding[ay] = (pad_y1, pad_y2)
+                    image = np.pad(image, padding, "constant")
 
                 # Extract patches
                 for x, y in zip(x_samp, y_samp):
                     # Slice on specified axis
                     slicing = [slice(None) for _ in range(image.ndim)]
-                    slicing[ax] = slice(x, x+patch_w)
-                    slicing[ay] = slice(y, y+patch_h)
+                    slicing[ax] = slice(x, x + patch_w)
+                    slicing[ay] = slice(y, y + patch_h)
 
                     patch = image[slicing]
                     patches.append(patch)
@@ -137,7 +150,11 @@ def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=Fa
         for feat_name, axis in spatial_features_and_axis:
             ay, ax = axis
             shape = data[feat_name].shape.as_list()
-            patches = tf.py_function(_py_get_patches(axis), [data[feat_name], x_samp, y_samp], data[feat_name].dtype)
+            patches = tf.py_function(
+                _py_get_patches(axis),
+                [data[feat_name], x_samp, y_samp],
+                data[feat_name].dtype,
+            )
 
             # Update shape information
             shape[ax] = patch_w
@@ -153,8 +170,8 @@ def extract_subpatches(patch_size, spatial_features_and_axis, random_sampling=Fa
     return _fn
 
 
-def augment_data(features_to_augment, brightness_delta=0.1, contrast_bounds=(0.9,1.1)):
-    """ Builds a function that randomly augments features in specified ways.
+def augment_data(features_to_augment, brightness_delta=0.1, contrast_bounds=(0.9, 1.1)):
+    """Builds a function that randomly augments features in specified ways.
 
     param features_to_augment: List of features to augment and which operations to perform on them.
                                Each element is of shape (feature, list_of_operations).
@@ -174,11 +191,17 @@ def augment_data(features_to_augment, brightness_delta=0.1, contrast_bounds=(0.9
 
         # Available operations
         operations = {
-            'flip_left_right': lambda x: tf.cond(flip_lr_cond, lambda: tf.image.flip_left_right(x), lambda: x),
-            'flip_up_down': lambda x: tf.cond(flip_ud_cond, lambda: tf.image.flip_up_down(x), lambda: x),
-            'rotate': lambda x: tf.image.rot90(x, rot90_amount),
-            'brightness': lambda x: tf.image.random_brightness(x, brightness_delta),
-            'contrast': lambda x: tf.image.random_contrast(x, contrast_lower, contrast_upper)
+            "flip_left_right": lambda x: tf.cond(
+                flip_lr_cond, lambda: tf.image.flip_left_right(x), lambda: x
+            ),
+            "flip_up_down": lambda x: tf.cond(
+                flip_ud_cond, lambda: tf.image.flip_up_down(x), lambda: x
+            ),
+            "rotate": lambda x: tf.image.rot90(x, rot90_amount),
+            "brightness": lambda x: tf.image.random_brightness(x, brightness_delta),
+            "contrast": lambda x: tf.image.random_contrast(
+                x, contrast_lower, contrast_upper
+            ),
         }
 
         for feature, ops in features_to_augment:
@@ -193,7 +216,7 @@ def augment_data(features_to_augment, brightness_delta=0.1, contrast_bounds=(0.9
 
 
 def cache_dataset(dataset, path):
-    """ Caches dataset into a file. Each element in the dataset will be computed only once. """
+    """Caches dataset into a file. Each element in the dataset will be computed only once."""
 
     # Create dir if missing
     directory = os.path.dirname(path)

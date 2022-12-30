@@ -26,10 +26,23 @@ class BiRNN(BaseCustomTempnetsModel):
     """
 
     class BiRNNModelSchema(BaseCustomTempnetsModel._Schema):
+        bidirectional = fields.Bool(
+            missing=False, description="Whether to use a bidirectional layer"
+        )
+        layer_norm = fields.Bool(
+            missing=False,
+            description="Whether to apply layer normalization in the encoder.",
+        )
         rnn_layer = fields.String(
             required=True,
             validate=OneOf(["rnn", "lstm", "gru"]),
             description="Type of RNN layer to use",
+        )
+
+        keep_prob_rnn = fields.Float(
+            required=True,
+            description="Keep probability used in dropout layers.",
+            example=0.5,
         )
 
         keep_prob = fields.Float(
@@ -56,18 +69,20 @@ class BiRNN(BaseCustomTempnetsModel):
             missing=0, description="Number of fully connected neurons."
         )
         fc_activation = fields.Str(
-            missing=None, description="Activation function used in final FC layers."
+            missing='relu', description="Activation function used in final FC layers."
         )
 
         batch_norm = fields.Bool(
             missing=False, description="Whether to use batch normalisation."
         )
         multioutput = fields.Bool(missing=False, description="Decrease dense neurons")
+        multibranch = fields.Bool(missing=False, description="Muiltibranch NN")
+        finetuning = fields.Bool(missing=False, description="finetuning")
 
     def _rnn_layer(self, net, last=False):
         """Returns a RNN layer for current configuration. Use `last=True` for the last RNN layer."""
         RNNLayer = rnn_layers[self.config.rnn_layer]
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob_rnn
 
         layer = RNNLayer(
             units=self.config.rnn_units,
@@ -82,7 +97,7 @@ class BiRNN(BaseCustomTempnetsModel):
         return layer(net)
 
     def _fcn_layer(self, net):
-        dropout_rate = 1 - self.config.keep_prob_conv
+        dropout_rate = 1 - self.config.keep_prob
         layer_fcn = Dense(
             units=self.config.nb_fc_neurons,
             kernel_initializer=self.config.kernel_initializer,

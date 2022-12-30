@@ -9,8 +9,12 @@ from .utils import parse_classname
 
 
 class ExecutionConfig(Schema):
-    model = fields.Nested(ObjectConfiguration, required=True, description='Model configuration')
-    task = fields.Nested(ObjectConfiguration, required=True, description='Task configuration')
+    model = fields.Nested(
+        ObjectConfiguration, required=True, description="Model configuration"
+    )
+    task = fields.Nested(
+        ObjectConfiguration, required=True, description="Task configuration"
+    )
 
 
 def execute(config_file):
@@ -37,10 +41,12 @@ def execute(config_file):
     task.run()
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Executes a workflow described in a provided config file.')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Executes a workflow described in a provided config file."
+    )
 
-    parser.add_argument('config_file', type=str, help='Path to the configuration file.')
+    parser.add_argument("config_file", type=str, help="Path to the configuration file.")
 
     args = parser.parse_args()
 
